@@ -2,14 +2,14 @@ import RPi.GPIO as GPIO
 import time
 
 # 모터 A (왼쪽 모터)
-IN1 = 27
-IN2 = 22
-ENA = 13  # PWM
+IN1 = 17
+IN2 = 27
+ENA = 18  # PWM
 
 # 모터 B (오른쪽 모터)
 IN3 = 23
 IN4 = 24
-ENB = 12   # PWM
+ENB = 25   # PWM
 
 # GPIO 설정
 GPIO.setmode(GPIO.BCM)  # 혹은 GPIO.BOARD로 변경 가능

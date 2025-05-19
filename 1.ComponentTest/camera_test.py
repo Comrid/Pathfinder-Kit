@@ -2,17 +2,22 @@ import subprocess
 
 def run_libcamera_hello():
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             ['libcamera-hello'],
-            check=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True  # str로 출력되게 함 (Python 3.7 이상)
+            stderr=subprocess.STDOUT,
+            text=True
         )
-        print(result.stdout)
-    except subprocess.CalledProcessError as e:
-        print("▶ libcamera-hello 실행 중 오류 발생:")
-        print(e.stderr)  # stderr 그대로 출력
+
+        # 실시간 출력
+        for line in process.stdout:
+            print(line, end='')
+
+        process.wait()
+
+        if process.returncode != 0:
+            print(f"\n[오류] libcamera-hello 종료 코드: {process.returncode}")
+
     except FileNotFoundError:
         print("▶ libcamera-hello 명령어를 찾을 수 없습니다.")
 
