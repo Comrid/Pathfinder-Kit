@@ -1,70 +1,40 @@
+from MotorClass import *
 import RPi.GPIO as GPIO
 import time
 
-class DualMotor:
-    def __init__(self, in1, in2, in3, in4, ena, enb, freq=1000):
-        GPIO.setmode(GPIO.BCM)
-        # 왼쪽 모터
-        self.IN1 = in1
-        self.IN2 = in2
-        self.ENA = ena
-        # 오른쪽 모터
-        self.IN3 = in3
-        self.IN4 = in4
-        self.ENB = enb
+# 핀 연결
+motor = DualMotor(
+    in1=22, in2=27,  # 왼쪽 모터
+    in3=23, in4=24,  # 오른쪽 모터
+    ena=13, enb=12   # PWM 핀
+)
 
-        # GPIO 설정
-        GPIO.setup(self.IN1, GPIO.OUT)
-        GPIO.setup(self.IN2, GPIO.OUT)
-        GPIO.setup(self.ENA, GPIO.OUT)
-        GPIO.setup(self.IN3, GPIO.OUT)
-        GPIO.setup(self.IN4, GPIO.OUT)
-        GPIO.setup(self.ENB, GPIO.OUT)
 
-        # PWM 객체 생성
-        self.pwmA = GPIO.PWM(self.ENA, freq)
-        self.pwmB = GPIO.PWM(self.ENB, freq)
-        self.pwmA.start(0)
-        self.pwmB.start(0)
+try:
+    while True:
+        print("전진")
+        motor.forward()
+        time.sleep(2)
 
-    def forward(self, speed=100):
-        GPIO.output(self.IN1, GPIO.HIGH)
-        GPIO.output(self.IN2, GPIO.LOW)
-        GPIO.output(self.IN3, GPIO.HIGH)
-        GPIO.output(self.IN4, GPIO.LOW)
-        self.pwmA.ChangeDutyCycle(speed)
-        self.pwmB.ChangeDutyCycle(speed)
+        print("좌회전")
+        motor.left()
+        time.sleep(1)
 
-    def backward(self, speed=100):
-        GPIO.output(self.IN1, GPIO.LOW)
-        GPIO.output(self.IN2, GPIO.HIGH)
-        GPIO.output(self.IN3, GPIO.LOW)
-        GPIO.output(self.IN4, GPIO.HIGH)
-        self.pwmA.ChangeDutyCycle(speed)
-        self.pwmB.ChangeDutyCycle(speed)
+        print("우회전")
+        motor.right()
+        time.sleep(1)
 
-    def left(self, speed=100):
-        # 왼쪽 모터 뒤로, 오른쪽 모터 앞으로
-        GPIO.output(self.IN1, GPIO.LOW)
-        GPIO.output(self.IN2, GPIO.HIGH)
-        GPIO.output(self.IN3, GPIO.HIGH)
-        GPIO.output(self.IN4, GPIO.LOW)
-        self.pwmA.ChangeDutyCycle(speed)
-        self.pwmB.ChangeDutyCycle(speed)
+        print("후진")
+        motor.backward()
+        time.sleep(2)
 
-    def right(self, speed=100):
-        # 왼쪽 모터 앞으로, 오른쪽 모터 뒤로
-        GPIO.output(self.IN1, GPIO.HIGH)
-        GPIO.output(self.IN2, GPIO.LOW)
-        GPIO.output(self.IN3, GPIO.LOW)
-        GPIO.output(self.IN4, GPIO.HIGH)
-        self.pwmA.ChangeDutyCycle(speed)
-        self.pwmB.ChangeDutyCycle(speed)
+        print("정지")
+        motor.stop()
+        time.sleep(1)
 
-    def stop(self):
-        self.pwmA.ChangeDutyCycle(0)
-        self.pwmB.ChangeDutyCycle(0)
+except KeyboardInterrupt:
+    print("종료 중...")
 
-    def cleanup(self):
-        self.pwmA.stop()
-        self.pwmB.stop()
+finally:
+    motor.cleanup()
+    GPIO.cleanup()
