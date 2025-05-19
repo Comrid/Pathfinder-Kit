@@ -20,7 +20,7 @@ class DualMotor:
         GPIO.setup(self.IN3, GPIO.OUT)
         GPIO.setup(self.IN4, GPIO.OUT)
         GPIO.setup(self.ENB, GPIO.OUT)
-
+        
         # PWM 객체 생성
         self.pwmA = GPIO.PWM(self.ENA, freq)
         self.pwmB = GPIO.PWM(self.ENB, freq)
@@ -34,7 +34,7 @@ class DualMotor:
         GPIO.output(self.IN4, GPIO.LOW)
         self.pwmA.ChangeDutyCycle(speed)
         self.pwmB.ChangeDutyCycle(speed)
-
+        
     def backward(self, speed=100):
         GPIO.output(self.IN1, GPIO.LOW)
         GPIO.output(self.IN2, GPIO.HIGH)
@@ -51,7 +51,7 @@ class DualMotor:
         GPIO.output(self.IN4, GPIO.LOW)
         self.pwmA.ChangeDutyCycle(speed)
         self.pwmB.ChangeDutyCycle(speed)
-
+        
     def right(self, speed=100):
         # 왼쪽 모터 앞으로, 오른쪽 모터 뒤로
         GPIO.output(self.IN1, GPIO.HIGH)

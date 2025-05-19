@@ -1,40 +1,36 @@
-from MotorClass import *
+from flask import Flask, render_template, request
 import RPi.GPIO as GPIO
-import time
+from Motor import DualMotor
 
-# 핀 연결
-motor = DualMotor(
-    in1=22, in2=27,  # 왼쪽 모터
-    in3=23, in4=24,  # 오른쪽 모터
-    ena=13, enb=12   # PWM 핀
-)
+app = Flask(__name__)
+GPIO.setmode(GPIO.BCM)
 
+motor = DualMotor(in1=22, in2=27, in3=23, in4=24, ena=13, enb=12)
 
-try:
-    while True:
-        print("전진")
+@app.route('/')
+def index():
+    return render_template('index.html')
+    
+@app.route('/move', methods=['POST'])
+def move():
+    direction = request.form['direction']
+    if direction == 'forward':
         motor.forward()
-        time.sleep(2)
-
-        print("좌회전")
-        motor.left()
-        time.sleep(1)
-
-        print("우회전")
-        motor.right()
-        time.sleep(1)
-
-        print("후진")
+    elif direction == 'backward':
         motor.backward()
-        time.sleep(2)
-
-        print("정지")
+    elif direction == 'left':
+        motor.left()
+    elif direction == 'right':
+        motor.right()
+    elif direction == 'stop':
         motor.stop()
-        time.sleep(1)
-
-except KeyboardInterrupt:
-    print("종료 중...")
-
-finally:
+    return '', 204  # 응답 없음 (빠르게 처리)
+    
+@app.route('/cleanup')
+def cleanup():
     motor.cleanup()
     GPIO.cleanup()
+    return 'GPIO cleaned up.'
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, threaded=True)
