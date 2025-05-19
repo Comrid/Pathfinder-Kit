@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Motor Dashboard</title>
+    <style>
+        button {
+            width: 100px;
+            height: 50px;
+            margin: 5px;
+            font-size: 16px;
+        }
+    </style>
+    <script>
+        function sendCommand(direction) {
+            fetch('/move', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'direction=' + direction
+            });
+        }
+    </script>
+</head>
+<body>
+    <h1>🚗 Motor Control Dashboard</h1>
+    <div>
+        <button onclick="sendCommand('forward')">Forward</button>
+    </div>
+    <div>
+        <button onclick="sendCommand('left')">Left</button>
+        <button onclick="sendCommand('stop')">Stop</button>
+        <button onclick="sendCommand('right')">Right</button>
+    </div>
+    <div>
+        <button onclick="sendCommand('backward')">Backward</button>
+    </div>
+</body>
+</html>

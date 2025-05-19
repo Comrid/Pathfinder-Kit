@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request
 import RPi.GPIO as GPIO
-from Motor import DualMotor
+from MotorClass import DualMotor
 
 app = Flask(__name__)
 GPIO.setmode(GPIO.BCM)
@@ -10,7 +10,7 @@ motor = DualMotor(in1=22, in2=27, in3=23, in4=24, ena=13, enb=12)
 @app.route('/')
 def index():
     return render_template('index.html')
-    
+
 @app.route('/move', methods=['POST'])
 def move():
     direction = request.form['direction']
