@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pathfinder Kit Controller</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .control-panel {
+            background-color: #fff;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .joystick-container {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin: 0 auto 20px;
+            background-color: #e9ecef;
+            border-radius: 50%;
+            touch-action: none;
+        }
+        .joystick {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            background-color: #0d6efd;
+            border-radius: 50%;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+            touch-action: none;
+            user-select: none;
+        }
+        .status-panel {
+            background-color: #fff;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .status-item {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+        }
+        .camera-feed {
+            width: 100%;
+            background-color: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        #cameraImage {
+            width: 100%;
+            display: block;
+        }
+        .btn-control {
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 10px;
+            font-size: 1.2rem;
+        }
+        .btn-primary {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+            border-color: #dc3545;
+        }
+        .btn-success {
+            background-color: #198754;
+            border-color: #198754;
+        }
+        .btn-warning {
+            background-color: #ffc107;
+            border-color: #ffc107;
+            color: #000;
+        }
+        .btn i {
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center my-4">Pathfinder Kit Controller</h1>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <div class="camera-feed">
+                    <img id="cameraImage" src="" alt="Camera Feed">
+                </div>
+                
+                <div class="control-panel">
+                    <h4>Manual Control</h4>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="joystick-container" id="joystickContainer">
+                                <div class="joystick" id="joystick"></div>
+                            </div>
+                            <div class="text-center">
+                                <button id="stopBtn" class="btn btn-danger btn-control">
+                                    <i class="bi bi-stop-fill"></i> Emergency Stop
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-grid gap-2">
+                                <button id="forwardBtn" class="btn btn-primary btn-control">
+                                    <i class="bi bi-arrow-up"></i> Forward
+                                </button>
+                                <div class="d-flex justify-content-between">
+                                    <button id="leftBtn" class="btn btn-warning btn-control me-2">
+                                        <i class="bi bi-arrow-left"></i> Left
+                                    </button>
+                                    <button id="rightBtn" class="btn btn-warning btn-control">
+                                        <i class="bi bi-arrow-right"></i> Right
+                                    </button>
+                                </div>
+                                <button id="backwardBtn" class="btn btn-primary btn-control">
+                                    <i class="bi bi-arrow-down"></i> Backward
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="status-panel">
+                    <h4>Status</h4>
+                    <div class="status-item">
+                        <strong>Connection:</strong> 
+                        <span id="connectionStatus" class="badge bg-secondary">Disconnected</span>
+                    </div>
+                    <div class="status-item">
+                        <strong>Obstacle:</strong> 
+                        <span id="obstacleStatus" class="badge bg-success">None</span>
+                    </div>
+                    <div class="status-item">
+                        <strong>Distance:</strong> 
+                        <span id="distanceValue">-</span> cm
+                    </div>
+                    <div class="status-item">
+                        <strong>Speed:</strong> 
+                        <span id="speedValue">0</span>%
+                    </div>
+                    <div class="status-item">
+                        <strong>Turn:</strong> 
+                        <span id="turnValue">0</span>%
+                    </div>
+                </div>
+                
+                <div class="control-panel">
+                    <h4>Camera</h4>
+                    <button id="captureBtn" class="btn btn-success btn-control">
+                        <i class="bi bi-camera"></i> Capture Image
+                    </button>
+                    <div class="mb-3">
+                        <label for="refreshRate" class="form-label">Refresh Rate: <span id="refreshRateValue">2</span>s</label>
+                        <input type="range" class="form-range" id="refreshRate" min="1" max="10" value="2">
+                    </div>
+                </div>
+                
+                <div class="control-panel">
+                    <h4>Settings</h4>
+                    <div class="mb-3">
+                        <label for="speedRange" class="form-label">Max Speed: <span id="speedRangeValue">50</span>%</label>
+                        <input type="range" class="form-range" id="speedRange" min="10" max="100" value="50">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // DOM Elements
+        const connectionStatus = document.getElementById('connectionStatus');
+        const obstacleStatus = document.getElementById('obstacleStatus');
+        const distanceValue = document.getElementById('distanceValue');
+        const speedValue = document.getElementById('speedValue');
+        const turnValue = document.getElementById('turnValue');
+        const cameraImage = document.getElementById('cameraImage');
+        
+        // Control buttons
+        const forwardBtn = document.getElementById('forwardBtn');
+        const backwardBtn = document.getElementById('backwardBtn');
+        const leftBtn = document.getElementById('leftBtn');
+        const rightBtn = document.getElementById('rightBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        
+        // Settings
+        const speedRange = document.getElementById('speedRange');
+        const speedRangeValue = document.getElementById('speedRangeValue');
+        const refreshRate = document.getElementById('refreshRate');
+        const refreshRateValue = document.getElementById('refreshRateValue');
+        
+        // Joystick elements
+        const joystick = document.getElementById('joystick');
+        const joystickContainer = document.getElementById('joystickContainer');
+        
+        // State
+        let isConnected = false;
+        let maxSpeed = 50;
+        let currentSpeed = 0;
+        let currentTurn = 0;  // -100 (full left) to 100 (full right)
+        let refreshInterval = 2000; // ms
+        let refreshTimer = null;
+        
+        // Initialize
+        function init() {
+            // Connect to the server
+            connect();
+            
+            // Set up event listeners
+            setupEventListeners();
+            
+            // Start status updates
+            updateStatus();
+        }
+        
+        // Connect to the server
+        function connect() {
+            fetch('/api/control', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ command: 'start' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    isConnected = true;
+                    connectionStatus.textContent = 'Connected';
+                    connectionStatus.className = 'badge bg-success';
+                    console.log('Connected to robot');
+                }
+            })
+            .catch(error => {
+                console.error('Error connecting to robot:', error);
+                connectionStatus.textContent = 'Error';
+                connectionStatus.className = 'badge bg-danger';
+            });
+        }
+        
+        // Set up event listeners
+        function setupEventListeners() {
+            // Control buttons
+            forwardBtn.addEventListener('mousedown', () => move(1, 0));
+            forwardBtn.addEventListener('mouseup', stop);
+            forwardBtn.addEventListener('mouseleave', stop);
+            
+            backwardBtn.addEventListener('mousedown', () => move(-1, 0));
+            backwardBtn.addEventListener('mouseup', stop);
+            backwardBtn.addEventListener('mouseleave', stop);
+            
+            leftBtn.addEventListener('mousedown', () => move(0, -1));
+            leftBtn.addEventListener('mouseup', stop);
+            leftBtn.addEventListener('mouseleave', stop);
+            
+            rightBtn.addEventListener('mousedown', () => move(0, 1));
+            rightBtn.addEventListener('mouseup', stop);
+            rightBtn.addEventListener('mouseleave', stop);
+            
+            stopBtn.addEventListener('click', emergencyStop);
+            captureBtn.addEventListener('click', captureImage);
+            
+            // Settings
+            speedRange.addEventListener('input', (e) => {
+                maxSpeed = parseInt(e.target.value);
+                speedRangeValue.textContent = maxSpeed;
+            });
+            
+            refreshRate.addEventListener('input', (e) => {
+                refreshInterval = parseInt(e.target.value) * 1000;
+                refreshRateValue.textContent = e.target.value;
+                
+                // Restart the refresh timer
+                if (refreshTimer) {
+                    clearInterval(refreshTimer);
+                }
+                refreshTimer = setInterval(updateStatus, refreshInterval);
+            });
+            
+            // Touch events for mobile
+            forwardBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                move(1, 0);
+            });
+            
+            backwardBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                move(-1, 0);
+            });
+            
+            leftBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                move(0, -1);
+            });
+            
+            rightBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                move(0, 1);
+            });
+            
+            // Stop on touch end
+            [forwardBtn, backwardBtn, leftBtn, rightBtn].forEach(btn => {
+                btn.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    stop();
+                });
+                
+                btn.addEventListener('touchcancel', (e) => {
+                    e.preventDefault();
+                    stop();
+                });
+            });
+            
+            // Joystick
+            setupJoystick();
+        }
+        
+        // Set up the joystick
+        function setupJoystick() {
+            let isDragging = false;
+            const containerRect = joystickContainer.getBoundingClientRect();
+            const centerX = containerRect.width / 2;
+            const centerY = containerRect.height / 2;
+            const maxDistance = Math.min(containerRect.width, containerRect.height) * 0.4;
+            
+            function handleStart(e) {
+                e.preventDefault();
+                isDragging = true;
+                updateJoystick(e);
+            }
+            
+            function handleMove(e) {
+                if (!isDragging) return;
+                e.preventDefault();
+                updateJoystick(e);
+            }
+            
+            function handleEnd() {
+                if (!isDragging) return;
+                isDragging = false;
+                
+                // Reset joystick position
+                joystick.style.transform = 'translate(-50%, -50%)';
+                
+                // Stop the robot
+                stop();
+            }
+            
+            function updateJoystick(e) {
+                // Get touch or mouse position
+                let clientX, clientY;
+                if (e.touches) {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+                
+                // Calculate position relative to container
+                const rect = joystickContainer.getBoundingClientRect();
+                const x = clientX - rect.left - centerX;
+                const y = clientY - rect.top - centerY;
+                
+                // Calculate distance from center
+                const distance = Math.min(Math.sqrt(x * x + y * y), maxDistance);
+                const angle = Math.atan2(y, x);
+                
+                // Calculate joystick position
+                const joystickX = Math.cos(angle) * distance;
+                const joystickY = Math.sin(angle) * distance;
+                
+                // Update joystick position
+                joystick.style.transform = `translate(calc(-50% + ${joystickX}px), calc(-50% + ${joystickY}px))`;
+                
+                // Calculate speed and turn values (-1 to 1)
+                const speed = -y / maxDistance; // Invert Y axis (up is positive)
+                const turn = x / maxDistance;
+                
+                // Send movement command
+                move(speed, turn);
+            }
+            
+            // Mouse events
+            joystick.addEventListener('mousedown', handleStart);
+            document.addEventListener('mousemove', handleMove);
+            document.addEventListener('mouseup', handleEnd);
+            
+            // Touch events
+            joystick.addEventListener('touchstart', handleStart, { passive: false });
+            document.addEventListener('touchmove', handleMove, { passive: false });
+            document.addEventListener('touchend', handleEnd);
+        }
+        
+        // Move the robot
+        function move(speed, turn) {
+            // Scale speed to maxSpeed
+            const scaledSpeed = Math.round(speed * maxSpeed);
+            const scaledTurn = Math.round(turn * 100);
+            
+            // Only send command if values have changed
+            if (scaledSpeed !== currentSpeed || scaledTurn !== currentTurn) {
+                currentSpeed = scaledSpeed;
+                currentTurn = scaledTurn;
+                
+                // Update UI
+                speedValue.textContent = Math.abs(currentSpeed);
+                turnValue.textContent = currentTurn > 0 ? `R ${currentTurn}` : `L ${Math.abs(currentTurn)}`;
+                
+                // Send command to server
+                fetch('/api/control', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        command: 'move',
+                        speed: currentSpeed,
+                        turn: currentTurn
+                    })
+                })
+                .catch(error => {
+                    console.error('Error sending move command:', error);
+                });
+            }
+        }
+        
+        // Stop the robot
+        function stop() {
+            if (currentSpeed !== 0 || currentTurn !== 0) {
+                currentSpeed = 0;
+                currentTurn = 0;
+                
+                // Update UI
+                speedValue.textContent = '0';
+                turnValue.textContent = '0';
+                
+                // Send stop command to server
+                fetch('/api/control', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        command: 'move',
+                        speed: 0,
+                        turn: 0
+                    })
+                })
+                .catch(error => {
+                    console.error('Error sending stop command:', error);
+                });
+            }
+        }
+        
+        // Emergency stop
+        function emergencyStop() {
+            fetch('/api/control', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ command: 'stop' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'stopped') {
+                    console.log('Emergency stop activated');
+                    // Reset UI
+                    currentSpeed = 0;
+                    currentTurn = 0;
+                    speedValue.textContent = '0';
+                    turnValue.textContent = '0';
+                }
+            })
+            .catch(error => {
+                console.error('Error during emergency stop:', error);
+            });
+        }
+        
+        // Capture an image
+        function captureImage() {
+            fetch('/api/control', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ command: 'capture' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'captured' && data.image_url) {
+                    // Update the image source with a timestamp to prevent caching
+                    cameraImage.src = data.image_url + '?t=' + new Date().getTime();
+                    cameraImage.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('Error capturing image:', error);
+            });
+        }
+        
+        // Update status
+        function updateStatus() {
+            if (!isConnected) {
+                // Try to reconnect
+                connect();
+                return;
+            }
+            
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        // Update obstacle status
+                        if (data.obstacle_detected) {
+                            obstacleStatus.textContent = 'Detected';
+                            obstacleStatus.className = 'badge bg-danger';
+                        } else {
+                            obstacleStatus.textContent = 'None';
+                            obstacleStatus.className = 'badge bg-success';
+                        }
+                        
+                        // Update distance
+                        if (data.obstacle_distance < Number.POSITIVE_INFINITY) {
+                            distanceValue.textContent = data.obstacle_distance.toFixed(1);
+                        } else {
+                            distanceValue.textContent = '∞';
+                        }
+                        
+                        // Update speed and turn (in case they were changed by another client)
+                        if (data.speed !== undefined && data.turn !== undefined) {
+                            currentSpeed = data.speed;
+                            currentTurn = data.turn;
+                            speedValue.textContent = Math.abs(currentSpeed);
+                            turnValue.textContent = currentTurn > 0 ? `R ${currentTurn}` : `L ${Math.abs(currentTurn)}`;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error getting status:', error);
+                    isConnected = false;
+                    connectionStatus.textContent = 'Disconnected';
+                    connectionStatus.className = 'badge bg-secondary';
+                });
+        }
+        
+        // Initialize the app
+        init();
+        
+        // Set up periodic status updates
+        refreshTimer = setInterval(updateStatus, refreshInterval);
+        
+        // Update camera image periodically
+        setInterval(() => {
+            if (cameraImage.src) {
+                cameraImage.src = cameraImage.src.split('?')[0] + '?t=' + new Date().getTime();
+            }
+        }, 1000);
+    </script>
+</body>
+</html>
