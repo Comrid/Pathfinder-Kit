@@ -18,12 +18,12 @@ GPIO.cleanup()
 GPIO.setmode(GPIO.BCM)
 
 # 모터 드라이버 핀 설정 (사용자 제공 핀 번호)
-IN3 = 27  # 오른쪽 모터 방향 1
-IN4 = 22  # 오른쪽 모터 방향 2
-IN1 = 23  # 왼쪽 모터 방향 1
-IN2 = 24  # 왼쪽 모터 방향 2
-ENA = 13  # 오른쪽 모터 PWM
-ENB = 12  # 왼쪽 모터 PWM
+IN1 = 23  # 오른쪽 모터 방향 1
+IN2 = 24  # 오른쪽 모터 방향 2
+IN3 = 27  # 왼쪽 모터 방향 1
+IN4 = 22  # 왼쪽 모터 방향 2
+ENA = 12  # 오른쪽 모터 PWM
+ENB = 13  # 왼쪽 모터 PWM
 
 # GPIO 핀 설정
 GPIO.setup(IN1, GPIO.OUT)
@@ -34,8 +34,8 @@ GPIO.setup(ENA, GPIO.OUT)
 GPIO.setup(ENB, GPIO.OUT)
 
 # PWM 설정
-pwm_right = GPIO.PWM(ENA, 1000)  # 100Hz 주파수
-pwm_left = GPIO.PWM(ENB, 1000)   # 100Hz 주파수
+pwm_right = GPIO.PWM(ENA, 1000)  # 오른쪽 모터 PWM (ENA = GPIO 12)
+pwm_left = GPIO.PWM(ENB, 1000)   # 왼쪽 모터 PWM (ENB = GPIO 13)
 pwm_right.start(0)
 pwm_left.start(0)
 
