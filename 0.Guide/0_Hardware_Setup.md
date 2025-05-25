@@ -80,8 +80,8 @@
 L298N          Pi Zero 2 W
 IN1     →      GPIO 23 (오른쪽 모터 방향 1)
 IN2     →      GPIO 24 (오른쪽 모터 방향 2)
-IN3     →      GPIO 27 (왼쪽 모터 방향 1)
-IN4     →      GPIO 22 (왼쪽 모터 방향 2)
+IN3     →      GPIO 22 (왼쪽 모터 방향 1)
+IN4     →      GPIO 27 (왼쪽 모터 방향 2)
 ENA     →      GPIO 12 (오른쪽 모터 PWM)
 ENB     →      GPIO 13 (왼쪽 모터 PWM)
 GND     →      GND (Pin 6)
