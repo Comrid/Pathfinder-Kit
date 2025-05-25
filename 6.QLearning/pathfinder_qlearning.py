@@ -15,7 +15,7 @@ from pathlib import Path
 # 모터 컨트롤러와 초음파 센서 import
 sys.path.append(str(Path(__file__).parent.parent))
 from MotorClassTest.Motor import MotorController
-from _2.ComponentClass._2.SonicClass.UltrasonicSensor import UltrasonicSensor
+from SonicClass import UltrasonicSensor
 
 class PathfinderQLearning:
     """패스파인더 키트용 Q-Learning 에이전트"""
