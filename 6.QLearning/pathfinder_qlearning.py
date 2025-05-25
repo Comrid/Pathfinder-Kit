@@ -15,7 +15,7 @@ from pathlib import Path
 # 모터 컨트롤러와 초음파 센서 import
 sys.path.append(str(Path(__file__).parent.parent))
 from MotorClassTest.Motor import MotorController
-from ComponentClass._2.UltrasonicClass.Ultrasonic import UltrasonicSensor
+from _2.ComponentClass._2.SonicClass.UltrasonicSensor import UltrasonicSensor
 
 class PathfinderQLearning:
     """패스파인더 키트용 Q-Learning 에이전트"""
@@ -29,7 +29,8 @@ class PathfinderQLearning:
         """
         # 하드웨어 초기화
         self.motor = MotorController()
-        self.ultrasonic = UltrasonicSensor()
+        # 초음파 센서 핀 설정 (실제 하드웨어에 맞게 조정)
+        self.ultrasonic = UltrasonicSensor(trigger_pin=5, echo_pin=6)
         
         # 설정 로드
         self.config = self._load_config(config)
