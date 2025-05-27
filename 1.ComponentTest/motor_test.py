@@ -11,6 +11,9 @@ IN3 = 23
 IN4 = 24
 ENB = 12   # PWM
 
+# 모터 속도(50~100)
+SPEED = 100
+
 # GPIO 설정
 GPIO.setmode(GPIO.BCM)  # 혹은 GPIO.BOARD로 변경 가능
 GPIO.setup(IN1, GPIO.OUT)
@@ -28,45 +31,46 @@ pwmA.start(0)
 pwmB.start(0)
 
 try:
+    print("🤖 패스파인더 모터 테스트 시작!")
+    print(f"⚡ 설정 속도: {SPEED}%")
+    print("🔄 전진(1초) → 정지(1초) → 후진(1초) → 정지(1초) 반복")
+    print("💡 Ctrl+C로 종료하세요")
+    print("-" * 40)
     while True:
         # 정방향 회전
-        print("Forward")
+        print("전진!", end="\t")
         GPIO.output(IN1, GPIO.HIGH)
         GPIO.output(IN2, GPIO.LOW)
-        pwmA.ChangeDutyCycle(100)
-
+        pwmA.ChangeDutyCycle(SPEED)
         GPIO.output(IN3, GPIO.HIGH)
         GPIO.output(IN4, GPIO.LOW)
-        pwmB.ChangeDutyCycle(100)
-
-        time.sleep(3)
+        pwmB.ChangeDutyCycle(SPEED)
+        time.sleep(1)
 
         # 정지 
-        print("Stop")
+        print("정지!", end="\t")
         pwmA.ChangeDutyCycle(0)
         pwmB.ChangeDutyCycle(0)
         time.sleep(1)
 
         # 역방향 회전
-        print("Backward")
+        print("후진!", end="\t")
         GPIO.output(IN1, GPIO.LOW)
         GPIO.output(IN2, GPIO.HIGH)
-        pwmA.ChangeDutyCycle(100)
+        pwmA.ChangeDutyCycle(SPEED)
         GPIO.output(IN3, GPIO.LOW)
         GPIO.output(IN4, GPIO.HIGH)
-        pwmB.ChangeDutyCycle(100)
-
-        time.sleep(3)
+        pwmB.ChangeDutyCycle(SPEED)
+        time.sleep(1)
 
         # 정지
-        print("Stop")
+        print("정지!", end="\n")
         pwmA.ChangeDutyCycle(0)
         pwmB.ChangeDutyCycle(0)
         time.sleep(1)
 
 except KeyboardInterrupt:
-    print("종료 중...")
-    pass
+    print("프로그램을 종료합니다!")
 
 finally:
     pwmA.stop()

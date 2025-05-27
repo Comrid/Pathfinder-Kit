@@ -41,7 +41,7 @@ class MotorController:
         GPIO.setup(self.left_in2, GPIO.OUT)
         GPIO.setup(self.right_pwm_pin, GPIO.OUT)
         GPIO.setup(self.left_pwm_pin, GPIO.OUT)
-        
+            
         # PWM 객체 생성
         self.right_pwm = GPIO.PWM(self.right_pwm_pin, 1000)
         self.left_pwm = GPIO.PWM(self.left_pwm_pin, 1000)
@@ -49,9 +49,9 @@ class MotorController:
         # PWM 시작
         self.right_pwm.start(0)
         self.left_pwm.start(0)
-        
+            
         print("모터 컨트롤러 초기화 완료")
-    
+            
     def set_motor_direction(self, motor, direction):
         """모터 방향 설정"""
         if motor == "right":
@@ -75,7 +75,7 @@ class MotorController:
             else:  # stop
                 GPIO.output(self.left_in1, GPIO.LOW)
                 GPIO.output(self.left_in2, GPIO.LOW)
-    
+        
     def set_motor_speed(self, motor, speed):
         """모터 속도 설정 (0-100)"""
         speed = max(0, min(100, speed))  # 0-100 범위로 제한
@@ -139,12 +139,12 @@ class MotorController:
     
     def cleanup(self):
         """GPIO 정리"""
-        self.stop_motors()
+                self.stop_motors()
         self.right_pwm.stop()
         self.left_pwm.stop()
-        GPIO.cleanup()
+            GPIO.cleanup()
         print("모터 컨트롤러 정리 완료")
-
+            
 # 간단한 테스트 함수
 def test_motor():
     """모터 테스트"""
@@ -153,19 +153,19 @@ def test_motor():
     try:
         print("전진 테스트...")
         motor.move_forward(50)
-        time.sleep(2)
-        
+            time.sleep(2)
+            
         print("좌회전 테스트...")
         motor.turn_left(50)
-        time.sleep(1)
-        
+            time.sleep(1)
+            
         print("우회전 테스트...")
         motor.turn_right(50)
-        time.sleep(1)
-        
+            time.sleep(1)
+            
         print("정지")
         motor.stop_motors()
-        
+            
     except KeyboardInterrupt:
         print("테스트 중단")
     

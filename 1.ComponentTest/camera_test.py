@@ -2,6 +2,10 @@ import subprocess
 
 def run_libcamera_hello():
     try:
+        print("🎥 패스파인더 카메라 테스트 시작!")
+        print("📷 libcamera-hello를 실행합니다...")
+        print("💡 Ctrl+C로 종료하세요")
+        print("-" * 40)
         process = subprocess.Popen(
             ['libcamera-hello'],
             stdout=subprocess.PIPE,
