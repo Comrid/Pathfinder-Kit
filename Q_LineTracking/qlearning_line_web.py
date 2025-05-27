@@ -10,6 +10,8 @@ import time
 import os
 import cv2
 import base64
+import numpy as np
+from picamera2 import Picamera2
 from qlearning_line_tracker import LineTrackingQLearning
 
 app = Flask(__name__)
@@ -169,8 +171,12 @@ html = """
             <!-- 카메라 피드 -->
             <div class="panel camera-panel">
                 <h3>📹 카메라 피드</h3>
+                <div style="margin-bottom: 10px;">
+                    <span>상태: </span><span id="cameraStatus" style="font-weight: bold;">확인 중...</span>
+                </div>
                 <img id="cameraFeed" class="camera-feed" src="" alt="카메라 피드">
                 <div style="margin-top: 10px;">
+                    <button onclick="initCamera()" class="success">카메라 초기화</button>
                     <button onclick="toggleCamera()">카메라 토글</button>
                     <button onclick="captureFrame()">프레임 캡처</button>
                 </div>
@@ -387,12 +393,58 @@ html = """
             }
         }
 
+        // 카메라 초기화
+        function initCamera() {
+            fetch('/init_camera', {method: 'POST'})
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    addLog('📹 ' + data.message);
+                    updateCameraStatus();
+                    // 카메라 초기화 후 피드 시작
+                    setTimeout(updateCamera, 1000);
+                } else {
+                    addLog('❌ ' + data.message);
+                }
+            })
+            .catch(error => {
+                addLog('❌ 카메라 초기화 요청 실패: ' + error);
+            });
+        }
+
         // 카메라 토글
         function toggleCamera() {
             cameraEnabled = !cameraEnabled;
             if (!cameraEnabled) {
                 document.getElementById('cameraFeed').src = '';
+                addLog('📹 카메라 피드 비활성화');
+            } else {
+                addLog('📹 카메라 피드 활성화');
+                updateCamera();
             }
+        }
+
+        // 카메라 상태 업데이트
+        function updateCameraStatus() {
+            fetch('/camera_status')
+            .then(response => response.json())
+            .then(data => {
+                const statusElement = document.getElementById('cameraStatus');
+                if (data.status === 'connected') {
+                    statusElement.textContent = '연결됨 ✅';
+                    statusElement.style.color = 'green';
+                } else if (data.status === 'disconnected') {
+                    statusElement.textContent = '연결 끊김 ❌';
+                    statusElement.style.color = 'red';
+                } else {
+                    statusElement.textContent = '초기화 필요 ⚠️';
+                    statusElement.style.color = 'orange';
+                }
+            })
+            .catch(error => {
+                document.getElementById('cameraStatus').textContent = '상태 확인 실패 ❌';
+                document.getElementById('cameraStatus').style.color = 'red';
+            });
         }
 
         // 프레임 캡처
@@ -506,7 +558,25 @@ html = """
         // 카메라 피드 업데이트
         function updateCamera() {
             if (cameraEnabled) {
-                document.getElementById('cameraFeed').src = '/video_feed?' + new Date().getTime();
+                const img = document.getElementById('cameraFeed');
+                const timestamp = new Date().getTime();
+                
+                // 이미지 로드 에러 처리
+                img.onerror = function() {
+                    console.log('카메라 피드 로드 실패, 재시도...');
+                    setTimeout(() => {
+                        if (cameraEnabled) {
+                            img.src = '/video_feed?' + new Date().getTime();
+                        }
+                    }, 2000);
+                };
+                
+                // 이미지 로드 성공 처리
+                img.onload = function() {
+                    console.log('카메라 피드 로드 성공');
+                };
+                
+                img.src = '/video_feed?' + timestamp;
             }
         }
 
@@ -530,6 +600,11 @@ html = """
         document.addEventListener('DOMContentLoaded', function() {
             setInterval(updateStatus, 1000);  // 1초마다 상태 업데이트
             setInterval(updateCamera, 2000);  // 2초마다 카메라 업데이트
+            setInterval(updateCameraStatus, 5000);  // 5초마다 카메라 상태 확인
+            
+            // 페이지 로드 시 즉시 카메라 상태 확인
+            updateCameraStatus();
+            setTimeout(updateCamera, 1000);  // 1초 후 카메라 피드 시작
         });
     </script>
 </body>
@@ -550,35 +625,122 @@ def video_feed():
     """비디오 스트림"""
     def generate():
         global agent
-        if agent and agent.camera.isOpened():
-            ret, frame = agent.camera.read()
-            if ret:
-                # 프레임 처리하여 라인 검출 시각화
-                line_x, line_detected = agent.process_frame(frame)
-                
-                # ROI 표시
-                roi_y = agent.config['roi_y_offset']
-                roi_height = agent.config['roi_height']
-                cv2.rectangle(frame, (0, roi_y), (320, roi_y + roi_height), (0, 255, 0), 2)
-                
-                # 라인 위치 표시
-                if line_detected:
-                    cv2.circle(frame, (line_x, roi_y + roi_height//2), 10, (0, 0, 255), -1)
-                    cv2.putText(frame, f'Line: {line_x}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        # 에이전트가 없으면 초기화
+        if agent is None:
+            try:
+                agent = LineTrackingQLearning()
+                print("📹 카메라 에이전트 초기화 완료")
+            except Exception as e:
+                print(f"❌ 에이전트 초기화 실패: {e}")
+                # 에러 이미지 생성
+                error_frame = create_error_frame("에이전트 초기화 실패")
+                while True:
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + error_frame + b'\r\n')
+                    time.sleep(1)
+        
+        # 카메라 상태 확인 및 재시도
+        camera_retry_count = 0
+        max_retries = 3
+        
+        while True:
+            try:
+                if agent and agent.camera:
+                    frame = agent.capture_frame()
+                    if frame is not None:
+                        # 프레임 처리하여 라인 검출 시각화
+                        line_x, line_detected = agent.process_frame(frame)
+                        
+                        # ROI 표시
+                        roi_y = agent.config['roi_y_offset']
+                        roi_height = agent.config['roi_height']
+                        cv2.rectangle(frame, (0, roi_y), (320, roi_y + roi_height), (0, 255, 0), 2)
+                        
+                        # 라인 위치 표시
+                        if line_detected:
+                            cv2.circle(frame, (line_x, roi_y + roi_height//2), 10, (0, 0, 255), -1)
+                            cv2.putText(frame, f'Line: {line_x}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        else:
+                            cv2.putText(frame, 'No Line', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                        
+                        # 중앙선 표시
+                        cv2.line(frame, (160, 0), (160, 240), (255, 255, 0), 1)
+                        
+                        # 상태 정보 추가
+                        cv2.putText(frame, f'Picamera2 OK', (10, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                        
+                        # JPEG 인코딩
+                        _, buffer = cv2.imencode('.jpg', frame)
+                        frame_bytes = buffer.tobytes()
+                        
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                        
+                        camera_retry_count = 0  # 성공 시 재시도 카운트 리셋
+                    else:
+                        # 프레임 읽기 실패
+                        camera_retry_count += 1
+                        if camera_retry_count <= max_retries:
+                            print(f"⚠️ 프레임 읽기 실패, 재시도 {camera_retry_count}/{max_retries}")
+                            time.sleep(0.5)
+                            continue
+                        else:
+                            # 에러 프레임 생성
+                            error_frame = create_error_frame("프레임 읽기 실패")
+                            yield (b'--frame\r\n'
+                                   b'Content-Type: image/jpeg\r\n\r\n' + error_frame + b'\r\n')
                 else:
-                    cv2.putText(frame, 'No Line', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    # 카메라가 없음
+                    camera_retry_count += 1
+                    if camera_retry_count <= max_retries:
+                        print(f"⚠️ 카메라 연결 실패, 재시도 {camera_retry_count}/{max_retries}")
+                        # 카메라 재초기화 시도
+                        try:
+                            if agent:
+                                agent.camera.stop()
+                                agent.camera.close()
+                                time.sleep(1)
+                                
+                                # Picamera2 재초기화
+                                agent.camera = Picamera2()
+                                agent.camera.preview_configuration.main.size = (320, 240)
+                                agent.camera.preview_configuration.main.format = "RGB888"
+                                agent.camera.configure("preview")
+                                agent.camera.start()
+                                time.sleep(2)
+                                continue
+                        except Exception as e:
+                            print(f"카메라 재초기화 실패: {e}")
+                    
+                    # 에러 프레임 생성
+                    error_frame = create_error_frame("카메라 연결 실패")
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + error_frame + b'\r\n')
                 
-                # 중앙선 표시
-                cv2.line(frame, (160, 0), (160, 240), (255, 255, 0), 1)
-                
-                # JPEG 인코딩
-                _, buffer = cv2.imencode('.jpg', frame)
-                frame_bytes = buffer.tobytes()
-                
+            except Exception as e:
+                print(f"비디오 스트림 오류: {e}")
+                error_frame = create_error_frame(f"스트림 오류: {str(e)[:30]}")
                 yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                       b'Content-Type: image/jpeg\r\n\r\n' + error_frame + b'\r\n')
+            
+            time.sleep(0.1)  # CPU 사용률 조절
     
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+def create_error_frame(message):
+    """에러 메시지가 포함된 프레임 생성"""
+    # 320x240 검은 이미지 생성
+    frame = np.zeros((240, 320, 3), dtype=np.uint8)
+    
+    # 에러 메시지 텍스트 추가
+    cv2.putText(frame, "Camera Error", (80, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    cv2.putText(frame, message, (20, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    cv2.putText(frame, "Check camera connection", (40, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+    
+    # JPEG 인코딩
+    _, buffer = cv2.imencode('.jpg', frame)
+    return buffer.tobytes()
 
 @app.route('/start_training', methods=['POST'])
 def start_training():
@@ -693,6 +855,69 @@ def capture_frame():
             return jsonify({'status': 'captured'})
     return jsonify({'status': 'error'})
 
+@app.route('/init_camera', methods=['POST'])
+def init_camera():
+    """카메라 초기화"""
+    global agent
+    try:
+        if agent is None:
+            agent = LineTrackingQLearning()
+        else:
+            # 기존 카메라 해제 후 재초기화
+            if hasattr(agent, 'camera') and agent.camera:
+                try:
+                    agent.camera.stop()
+                    agent.camera.close()
+                except:
+                    pass
+            
+            # Picamera2 재초기화
+            agent.camera = Picamera2()
+            agent.camera.preview_configuration.main.size = (320, 240)
+            agent.camera.preview_configuration.main.format = "RGB888"
+            agent.camera.configure("preview")
+            agent.camera.start()
+            
+            # 카메라 워밍업
+            time.sleep(2)
+            for _ in range(5):
+                frame = agent.capture_frame()
+                if frame is not None:
+                    break
+                time.sleep(0.1)
+        
+        if agent.camera:
+            return jsonify({'status': 'success', 'message': 'Picamera2 초기화 성공'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Picamera2 초기화 실패'})
+            
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'카메라 초기화 실패: {str(e)}'})
+
+@app.route('/camera_status', methods=['GET'])
+def camera_status():
+    """카메라 상태 확인"""
+    global agent
+    if agent and hasattr(agent, 'camera') and agent.camera:
+        try:
+            # 테스트 프레임 캡처로 상태 확인
+            test_frame = agent.capture_frame()
+            is_working = test_frame is not None
+            return jsonify({
+                'status': 'connected' if is_working else 'disconnected',
+                'is_opened': is_working
+            })
+        except:
+            return jsonify({
+                'status': 'disconnected',
+                'is_opened': False
+            })
+    else:
+        return jsonify({
+            'status': 'not_initialized',
+            'is_opened': False
+        })
+
 @app.route('/status')
 def get_status():
     global agent, training_active
@@ -731,14 +956,17 @@ def get_status():
         recent_rewards = agent.episode_rewards[-10:]
         avg_reward = sum(recent_rewards) / len(recent_rewards)
     
-    # 현재 라인 위치 측정
+    # 현재 라인 위치 측정 (안전하게 처리)
     line_position = 160
     line_detected = False
     try:
-        frame = agent.capture_frame()
-        if frame is not None:
-            line_position, line_detected = agent.process_frame(frame)
-    except:
+        if hasattr(agent, 'camera') and agent.camera:
+            frame = agent.capture_frame()
+            if frame is not None:
+                line_position, line_detected = agent.process_frame(frame)
+    except Exception as e:
+        # 카메라 오류 시 기본값 유지
+        print(f"Status 카메라 오류 (무시됨): {e}")
         pass
     
     return jsonify({

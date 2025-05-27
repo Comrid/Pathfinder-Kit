@@ -12,6 +12,7 @@ import cv2
 from typing import List, Dict, Tuple, Optional
 import sys
 from pathlib import Path
+from picamera2 import Picamera2
 
 # 모터 컨트롤러 import
 sys.path.append(str(Path(__file__).parent.parent))
@@ -29,10 +30,16 @@ class LineTrackingQLearning:
         """
         # 하드웨어 초기화
         self.motor = MotorController()
-        self.camera = cv2.VideoCapture(0)
-        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-        self.camera.set(cv2.CAP_PROP_FPS, 30)
+        
+        # Picamera2 초기화
+        self.camera = Picamera2()
+        self.camera.preview_configuration.main.size = (320, 240)
+        self.camera.preview_configuration.main.format = "RGB888"
+        self.camera.configure("preview")
+        self.camera.start()
+        
+        # 카메라 워밍업
+        time.sleep(2)
         
         # 설정 로드
         self.config = self._load_config(config)
@@ -120,8 +127,10 @@ class LineTrackingQLearning:
     def capture_frame(self) -> Optional[np.ndarray]:
         """카메라에서 프레임 캡처"""
         try:
-            ret, frame = self.camera.read()
-            if ret:
+            frame = self.camera.capture_array()
+            if frame is not None:
+                # RGB를 BGR로 변환 (OpenCV 호환성)
+                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 return frame
             return None
         except Exception as e:
@@ -513,8 +522,11 @@ class LineTrackingQLearning:
         """리소스 정리"""
         self.motor.stop_motors()
         self.motor.cleanup()
-        if self.camera.isOpened():
-            self.camera.release()
+        try:
+            self.camera.stop()
+            self.camera.close()
+        except:
+            pass
         print("🧹 리소스 정리 완료")
 
 
