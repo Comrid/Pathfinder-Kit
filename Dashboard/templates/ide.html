@@ -171,6 +171,14 @@
             display: none;
         }
 
+        .folder-wrapper {
+            width: 100%;
+        }
+
+        .folder-header {
+            /* 폴더 헤더 스타일은 기본 tree-item과 동일 */
+        }
+
         .editor-area {
             flex: 1;
             display: flex;
@@ -688,9 +696,10 @@
 
             // 컨텍스트 메뉴
             document.addEventListener('contextmenu', function(e) {
-                if (e.target.closest('.tree-item')) {
+                const treeItem = e.target.closest('.tree-item');
+                if (treeItem) {
                     e.preventDefault();
-                    showContextMenu(e, e.target.closest('.tree-item'));
+                    showContextMenu(e, treeItem);
                 }
             });
 
@@ -725,28 +734,34 @@
             container.innerHTML = '';
             
             function renderItem(item, level = 0, parentContainer = container) {
-                const div = document.createElement('div');
-                div.className = 'tree-item';
-                div.style.paddingLeft = (15 + level * 20) + 'px';
-                div.dataset.path = item.path;
-                div.dataset.type = item.type;
-                
+                // 폴더인 경우 wrapper div 생성
                 if (item.type === 'folder') {
+                    const folderWrapper = document.createElement('div');
+                    folderWrapper.className = 'folder-wrapper';
+                    
+                    // 폴더 헤더 생성
+                    const folderHeader = document.createElement('div');
+                    folderHeader.className = 'tree-item folder-header';
+                    folderHeader.style.paddingLeft = (15 + level * 20) + 'px';
+                    folderHeader.dataset.path = item.path;
+                    folderHeader.dataset.type = item.type;
+                    
                     const hasChildren = item.children && item.children.length > 0;
                     const expandIcon = hasChildren ? '▶' : '';
                     
-                    div.innerHTML = `
+                    folderHeader.innerHTML = `
                         <span class="expand-icon">${expandIcon}</span>
                         <span class="icon">📁</span>
                         <span class="name">${item.name}</span>
                     `;
                     
-                    div.onclick = (e) => {
+                    // 폴더 클릭 이벤트
+                    folderHeader.onclick = (e) => {
                         e.stopPropagation();
-                        toggleFolder(div, item);
+                        toggleFolder(folderWrapper, item);
                     };
                     
-                    parentContainer.appendChild(div);
+                    folderWrapper.appendChild(folderHeader);
                     
                     // 자식 요소들을 위한 컨테이너 생성
                     if (hasChildren) {
@@ -758,15 +773,29 @@
                             renderItem(child, level + 1, childrenDiv);
                         });
                         
-                        parentContainer.appendChild(childrenDiv);
+                        folderWrapper.appendChild(childrenDiv);
                     }
+                    
+                    parentContainer.appendChild(folderWrapper);
                 } else {
-                    div.innerHTML = `
+                    // 파일인 경우
+                    const fileDiv = document.createElement('div');
+                    fileDiv.className = 'tree-item';
+                    fileDiv.style.paddingLeft = (15 + level * 20) + 'px';
+                    fileDiv.dataset.path = item.path;
+                    fileDiv.dataset.type = item.type;
+                    
+                    fileDiv.innerHTML = `
                         <span class="icon">${getFileIcon(item.extension)}</span>
                         <span class="name">${item.name}</span>
                     `;
-                    div.onclick = () => openFile(item.path);
-                    parentContainer.appendChild(div);
+                    
+                    fileDiv.onclick = (e) => {
+                        e.stopPropagation();
+                        openFile(item.path);
+                    };
+                    
+                    parentContainer.appendChild(fileDiv);
                 }
             }
             
@@ -788,17 +817,20 @@
         }
 
         // 폴더 토글
-        function toggleFolder(element, item) {
-            const expandIcon = element.querySelector('.expand-icon');
-            const nextElement = element.nextElementSibling;
+        function toggleFolder(folderWrapper, item) {
+            const folderHeader = folderWrapper.querySelector('.folder-header');
+            const expandIcon = folderHeader.querySelector('.expand-icon');
+            const childrenDiv = folderWrapper.querySelector('.tree-children');
             
-            if (nextElement && nextElement.classList.contains('tree-children')) {
-                if (nextElement.classList.contains('collapsed')) {
-                    nextElement.classList.remove('collapsed');
+            if (childrenDiv) {
+                if (childrenDiv.classList.contains('collapsed')) {
+                    // 폴더 열기
+                    childrenDiv.classList.remove('collapsed');
                     expandIcon.textContent = '▼';
                     expandIcon.classList.add('expanded');
                 } else {
-                    nextElement.classList.add('collapsed');
+                    // 폴더 닫기
+                    childrenDiv.classList.add('collapsed');
                     expandIcon.textContent = '▶';
                     expandIcon.classList.remove('expanded');
                 }
