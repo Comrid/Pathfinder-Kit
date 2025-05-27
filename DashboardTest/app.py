@@ -4,14 +4,19 @@ Pathfinder Web IDE - 간단하고 안정적인 웹 기반 코드 편집기
 """
 
 from flask import Flask, request, render_template, jsonify
+from flask_socketio import SocketIO, emit, join_room
 import subprocess
 import os
 import shutil
 import json
 from datetime import datetime
 import traceback
+import threading
+import time
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'pathfinder-web-ide-secret'
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # 설정
 CONFIG = {
@@ -84,52 +89,18 @@ class FileManager:
             return False
 
 class CodeRunner:
-    """코드 실행 관리"""
+    """WebSocket 기반 코드 실행 관리"""
     
     running_processes = {}  # 실행 중인 프로세스 저장
+    process_threads = {}    # 출력 모니터링 스레드 저장
     
     @staticmethod
-    def run_python_file(filepath):
-        """Python 파일 실행 (일반 모드 - 기존 방식)"""
-        try:
-            result = subprocess.run(
-                ['python3', filepath],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                cwd=os.path.dirname(filepath)
-            )
-            
-            output = result.stdout
-            if result.stderr:
-                output += "\n" + result.stderr
-                
-            return {
-                'success': result.returncode == 0,
-                'output': output,
-                'exit_code': result.returncode
-            }
-            
-        except subprocess.TimeoutExpired:
-            return {
-                'success': False,
-                'output': '⏰ 실행 시간 초과 (30초)',
-                'exit_code': -1
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'output': f'❌ 실행 오류: {str(e)}',
-                'exit_code': -1
-            }
-    
-    @staticmethod
-    def start_python_stream(filepath):
-        """Python 파일 스트리밍 실행 시작"""
+    def start_python_execution(filepath, session_id):
+        """Python 파일 WebSocket 스트리밍 실행"""
         try:
             # 기존 프로세스가 있으면 종료
             if filepath in CodeRunner.running_processes:
-                CodeRunner.stop_python_stream(filepath)
+                CodeRunner.stop_python_execution(filepath)
             
             # 새 프로세스 시작
             process = subprocess.Popen(
@@ -137,30 +108,113 @@ class CodeRunner:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1,  # line buffered
+                bufsize=0,  # unbuffered
                 cwd=os.path.dirname(filepath)
             )
             
-            CodeRunner.running_processes[filepath] = process
+            CodeRunner.running_processes[filepath] = {
+                'process': process,
+                'session_id': session_id
+            }
+            
+            # 출력 모니터링 스레드 시작
+            monitor_thread = threading.Thread(
+                target=CodeRunner._monitor_process_output,
+                args=(filepath, process, session_id),
+                daemon=True
+            )
+            monitor_thread.start()
+            CodeRunner.process_threads[filepath] = monitor_thread
+            
+            # 시작 메시지 전송
+            socketio.emit('execution_started', {
+                'filepath': filepath,
+                'pid': process.pid,
+                'message': f'📡 프로세스 시작됨 (PID: {process.pid})'
+            }, room=session_id)
             
             return {
                 'success': True,
-                'message': '스트리밍 실행 시작됨',
+                'message': '실행이 시작되었습니다',
                 'pid': process.pid
             }
             
         except Exception as e:
+            socketio.emit('execution_error', {
+                'filepath': filepath,
+                'error': f'❌ 실행 오류: {str(e)}'
+            }, room=session_id)
+            
             return {
                 'success': False,
                 'error': f'실행 오류: {str(e)}'
             }
     
     @staticmethod
-    def stop_python_stream(filepath):
-        """Python 파일 스트리밍 실행 중지"""
+    def _monitor_process_output(filepath, process, session_id):
+        """프로세스 출력을 실시간으로 모니터링하고 WebSocket으로 전송"""
+        try:
+            while True:
+                # 프로세스가 종료되었는지 확인
+                if process.poll() is not None:
+                    # 남은 출력 읽기
+                    remaining_output = process.stdout.read()
+                    if remaining_output:
+                        socketio.emit('execution_output', {
+                            'filepath': filepath,
+                            'output': remaining_output
+                        }, room=session_id)
+                    
+                    # 종료 메시지 전송
+                    socketio.emit('execution_finished', {
+                        'filepath': filepath,
+                        'exit_code': process.returncode,
+                        'message': f'✅ 프로세스 종료됨 (종료 코드: {process.returncode})'
+                    }, room=session_id)
+                    
+                    # 정리
+                    if filepath in CodeRunner.running_processes:
+                        del CodeRunner.running_processes[filepath]
+                    if filepath in CodeRunner.process_threads:
+                        del CodeRunner.process_threads[filepath]
+                    
+                    break
+                
+                # 새로운 출력 읽기
+                try:
+                    line = process.stdout.readline()
+                    if line:
+                        socketio.emit('execution_output', {
+                            'filepath': filepath,
+                            'output': line
+                        }, room=session_id)
+                    else:
+                        # 출력이 없으면 잠시 대기
+                        time.sleep(0.01)  # 10ms 대기
+                        
+                except Exception as e:
+                    socketio.emit('execution_error', {
+                        'filepath': filepath,
+                        'error': f'❌ 출력 읽기 오류: {str(e)}'
+                    }, room=session_id)
+                    break
+                    
+        except Exception as e:
+            socketio.emit('execution_error', {
+                'filepath': filepath,
+                'error': f'❌ 모니터링 오류: {str(e)}'
+            }, room=session_id)
+    
+    @staticmethod
+    def stop_python_execution(filepath):
+        """Python 파일 실행 중지"""
         try:
             if filepath in CodeRunner.running_processes:
-                process = CodeRunner.running_processes[filepath]
+                process_info = CodeRunner.running_processes[filepath]
+                process = process_info['process']
+                session_id = process_info['session_id']
+                
+                # 프로세스 종료
                 process.terminate()
                 try:
                     process.wait(timeout=5)
@@ -168,7 +222,16 @@ class CodeRunner:
                     process.kill()
                     process.wait()
                 
+                # 중지 메시지 전송
+                socketio.emit('execution_stopped', {
+                    'filepath': filepath,
+                    'message': '⏹️ 실행이 중지되었습니다'
+                }, room=session_id)
+                
+                # 정리
                 del CodeRunner.running_processes[filepath]
+                if filepath in CodeRunner.process_threads:
+                    del CodeRunner.process_threads[filepath]
                 
                 return {
                     'success': True,
@@ -187,60 +250,9 @@ class CodeRunner:
             }
     
     @staticmethod
-    def get_stream_output(filepath):
-        """스트리밍 출력 가져오기"""
-        try:
-            if filepath not in CodeRunner.running_processes:
-                return {
-                    'success': False,
-                    'error': '실행 중인 프로세스가 없습니다'
-                }
-            
-            process = CodeRunner.running_processes[filepath]
-            
-            # 프로세스가 종료되었는지 확인
-            if process.poll() is not None:
-                # 프로세스 종료됨
-                remaining_output = process.stdout.read()
-                del CodeRunner.running_processes[filepath]
-                
-                return {
-                    'success': True,
-                    'output': remaining_output,
-                    'finished': True,
-                    'exit_code': process.returncode
-                }
-            
-            # 새로운 출력 읽기 (논블로킹)
-            import select
-            import sys
-            
-            if sys.platform != 'win32':
-                # Unix/Linux 시스템
-                ready, _, _ = select.select([process.stdout], [], [], 0.1)
-                if ready:
-                    output = process.stdout.readline()
-                else:
-                    output = ''
-            else:
-                # Windows 시스템 (간단한 방식)
-                try:
-                    output = process.stdout.readline()
-                except:
-                    output = ''
-            
-            return {
-                'success': True,
-                'output': output,
-                'finished': False,
-                'pid': process.pid
-            }
-            
-        except Exception as e:
-            return {
-                'success': False,
-                'error': f'출력 읽기 오류: {str(e)}'
-            }
+    def is_running(filepath):
+        """파일이 실행 중인지 확인"""
+        return filepath in CodeRunner.running_processes
 
 # 라우트
 @app.route('/')
@@ -321,7 +333,7 @@ def save_file(filepath):
 
 @app.route('/api/run/<path:filepath>', methods=['POST'])
 def run_file(filepath):
-    """파일 실행 (일반 모드)"""
+    """파일 실행 (WebSocket 스트리밍)"""
     try:
         if not FileManager.is_safe_path(filepath):
             return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
@@ -334,60 +346,76 @@ def run_file(filepath):
         if not filepath.endswith('.py'):
             return jsonify({'success': False, 'error': 'Python 파일만 실행할 수 있습니다'}), 400
         
-        result = CodeRunner.run_python_file(full_path)
+        # 세션 ID는 프론트엔드에서 전달받음
+        session_id = request.json.get('session_id') if request.json else None
+        if not session_id:
+            return jsonify({'success': False, 'error': '세션 ID가 필요합니다'}), 400
+        
+        result = CodeRunner.start_python_execution(full_path, session_id)
         return jsonify(result)
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/stream/start/<path:filepath>', methods=['POST'])
-def start_stream(filepath):
-    """스트리밍 실행 시작"""
+@app.route('/api/stop/<path:filepath>', methods=['POST'])
+def stop_execution(filepath):
+    """실행 중지"""
     try:
         if not FileManager.is_safe_path(filepath):
             return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
         
         full_path = os.path.join(CONFIG['project_dir'], filepath)
-        
-        if not os.path.exists(full_path):
-            return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다'}), 404
-        
-        if not filepath.endswith('.py'):
-            return jsonify({'success': False, 'error': 'Python 파일만 실행할 수 있습니다'}), 400
-        
-        result = CodeRunner.start_python_stream(full_path)
+        result = CodeRunner.stop_python_execution(full_path)
         return jsonify(result)
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/stream/stop/<path:filepath>', methods=['POST'])
-def stop_stream(filepath):
-    """스트리밍 실행 중지"""
+@app.route('/api/status/<path:filepath>')
+def get_execution_status(filepath):
+    """실행 상태 확인"""
     try:
         if not FileManager.is_safe_path(filepath):
             return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
         
         full_path = os.path.join(CONFIG['project_dir'], filepath)
-        result = CodeRunner.stop_python_stream(full_path)
-        return jsonify(result)
+        is_running = CodeRunner.is_running(full_path)
+        
+        return jsonify({
+            'success': True,
+            'running': is_running
+        })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/stream/output/<path:filepath>')
-def get_stream_output(filepath):
-    """스트리밍 출력 가져오기"""
-    try:
-        if not FileManager.is_safe_path(filepath):
-            return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
-        
-        full_path = os.path.join(CONFIG['project_dir'], filepath)
-        result = CodeRunner.get_stream_output(full_path)
-        return jsonify(result)
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+# WebSocket 이벤트 핸들러
+@socketio.on('connect')
+def handle_connect():
+    """클라이언트 연결"""
+    print(f"클라이언트 연결됨: {request.sid}")
+    emit('connected', {'message': '서버에 연결되었습니다'})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """클라이언트 연결 해제"""
+    print(f"클라이언트 연결 해제됨: {request.sid}")
+    
+    # 해당 세션의 실행 중인 프로세스들 정리
+    processes_to_stop = []
+    for filepath, process_info in CodeRunner.running_processes.items():
+        if process_info['session_id'] == request.sid:
+            processes_to_stop.append(filepath)
+    
+    for filepath in processes_to_stop:
+        CodeRunner.stop_python_execution(filepath)
+
+@socketio.on('join_session')
+def handle_join_session(data):
+    """세션 참가"""
+    session_id = data.get('session_id', request.sid)
+    join_room(session_id)
+    emit('session_joined', {'session_id': session_id})
 
 @app.route('/api/create', methods=['POST'])
 def create_item():
@@ -497,5 +525,6 @@ if __name__ == '__main__':
     print("🚀 Pathfinder Web IDE 시작!")
     print(f"📁 프로젝트 디렉토리: {CONFIG['project_dir']}")
     print("🌐 브라우저에서 http://라즈베리파이IP:5000 으로 접속하세요")
+    print("⚡ WebSocket 실시간 스트리밍 지원")
     
-    app.run(host='0.0.0.0', port=5000, debug=True) 
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True) 
