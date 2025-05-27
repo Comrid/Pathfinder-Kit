@@ -1,0 +1,1587 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pathfinder Web IDE v2</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    
+    <!-- Monaco Editor -->
+    <script src="https://unpkg.com/monaco-editor@0.44.0/min/vs/loader.js"></script>
+    
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1e1e1e;
+            color: #cccccc;
+            overflow: hidden;
+        }
+
+        /* 메인 컨테이너 */
+        .ide-container {
+            display: flex;
+            height: 100vh;
+            flex-direction: column;
+        }
+
+        /* 상단 메뉴바 */
+        .menubar {
+            background: #2d2d30;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            border-bottom: 1px solid #3e3e42;
+            user-select: none;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            margin-right: 30px;
+            font-weight: bold;
+            color: #ffffff;
+            font-size: 16px;
+        }
+
+        .logo::before {
+            content: '🚀';
+            margin-right: 8px;
+        }
+
+        .menu-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .menu-btn {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .menu-btn:hover {
+            background: #005a9e;
+        }
+
+        .menu-btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .menu-btn.danger {
+            background: #dc3545;
+        }
+
+        .menu-btn.danger:hover {
+            background: #c82333;
+        }
+
+        /* 메인 영역 */
+        .main-area {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* 사이드바 */
+        .sidebar {
+            width: 280px;
+            background: #252526;
+            border-right: 1px solid #3e3e42;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 12px 15px;
+            background: #2d2d30;
+            border-bottom: 1px solid #3e3e42;
+            font-weight: bold;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #cccccc;
+        }
+
+        .file-tree {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+
+        .tree-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 15px;
+            cursor: pointer;
+            user-select: none;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .tree-item:hover {
+            background: #2a2d2e;
+        }
+
+        .tree-item.selected {
+            background: #094771;
+            color: #ffffff;
+        }
+
+        .tree-item .icon {
+            margin-right: 8px;
+            width: 16px;
+            text-align: center;
+        }
+
+        .tree-item .expand-icon {
+            margin-right: 4px;
+            width: 12px;
+            text-align: center;
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+
+        .tree-item .expand-icon.expanded {
+            transform: rotate(90deg);
+        }
+
+        .tree-children {
+            margin-left: 20px;
+        }
+
+        .tree-children.collapsed {
+            display: none;
+        }
+
+        /* 에디터 영역 */
+        .editor-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 탭 바 */
+        .tab-bar {
+            background: #2d2d30;
+            border-bottom: 1px solid #3e3e42;
+            display: flex;
+            align-items: center;
+            min-height: 36px;
+            overflow-x: auto;
+        }
+
+        .tab {
+            display: flex;
+            align-items: center;
+            padding: 8px 15px;
+            background: #2d2d30;
+            border-right: 1px solid #3e3e42;
+            cursor: pointer;
+            user-select: none;
+            font-size: 13px;
+            min-width: 120px;
+            max-width: 200px;
+        }
+
+        .tab.active {
+            background: #1e1e1e;
+            border-bottom: 2px solid #007acc;
+        }
+
+        .tab .tab-icon {
+            margin-right: 6px;
+        }
+
+        .tab .tab-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tab .tab-close {
+            margin-left: 8px;
+            padding: 2px 4px;
+            border-radius: 3px;
+            opacity: 0.7;
+            transition: opacity 0.2s, background 0.2s;
+        }
+
+        .tab:hover .tab-close {
+            opacity: 1;
+        }
+
+        .tab .tab-close:hover {
+            background: #3e3e42;
+        }
+
+        .tab.modified .tab-name::after {
+            content: ' ●';
+            color: #ffffff;
+        }
+
+        /* 에디터 컨테이너 */
+        .editor-container {
+            flex: 1;
+            position: relative;
+        }
+
+        #monaco-editor {
+            width: 100%;
+            height: 100%;
+        }
+
+        .welcome-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            color: #8c8c8c;
+        }
+
+        .welcome-screen h2 {
+            margin-bottom: 20px;
+            color: #cccccc;
+        }
+
+        /* 하단 패널 */
+        .bottom-panel {
+            background: #252526;
+            border-top: 1px solid #3e3e42;
+            height: 200px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .bottom-panel.collapsed {
+            height: 0;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: #2d2d30;
+            padding: 8px 15px;
+            border-bottom: 1px solid #3e3e42;
+            font-weight: bold;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        .terminal {
+            flex: 1;
+            background: #000000;
+            color: #ffffff;
+            font-family: 'Consolas', 'Monaco', monospace;
+            padding: 10px;
+            overflow-y: auto;
+            font-size: 13px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+
+        /* 상태바 */
+        .statusbar {
+            background: #007acc;
+            color: #ffffff;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            font-size: 12px;
+        }
+
+        .statusbar-left, .statusbar-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .status-item {
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 3px;
+            transition: background 0.2s;
+        }
+
+        .status-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        /* 컨텍스트 메뉴 */
+        .context-menu {
+            position: fixed;
+            background: #383838;
+            border: 1px solid #5a5a5a;
+            border-radius: 4px;
+            padding: 4px 0;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            min-width: 160px;
+            display: none;
+        }
+
+        .context-menu-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .context-menu-item:hover {
+            background: #094771;
+        }
+
+        .context-menu-separator {
+            height: 1px;
+            background: #5a5a5a;
+            margin: 4px 0;
+        }
+
+        /* 모달 */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .modal-content {
+            background: #2d2d30;
+            border: 1px solid #5a5a5a;
+            border-radius: 6px;
+            padding: 24px;
+            min-width: 320px;
+            max-width: 480px;
+        }
+
+        .modal-header {
+            margin-bottom: 16px;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .modal-body {
+            margin-bottom: 20px;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .btn-primary {
+            background: #007acc;
+            color: #ffffff;
+        }
+
+        .btn-primary:hover {
+            background: #005a9e;
+        }
+
+        .btn-secondary {
+            background: #5a5a5a;
+            color: #ffffff;
+        }
+
+        .btn-secondary:hover {
+            background: #6a6a6a;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 8px 12px;
+            background: #3c3c3c;
+            border: 1px solid #5a5a5a;
+            border-radius: 4px;
+            color: #ffffff;
+            font-size: 13px;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: #007acc;
+        }
+
+        /* 알림 */
+        .notification {
+            position: fixed;
+            top: 60px;
+            right: 20px;
+            background: #2d2d30;
+            border: 1px solid #5a5a5a;
+            border-radius: 6px;
+            padding: 16px;
+            max-width: 320px;
+            z-index: 1500;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.success {
+            border-left: 4px solid #28a745;
+        }
+
+        .notification.error {
+            border-left: 4px solid #dc3545;
+        }
+
+        .notification.warning {
+            border-left: 4px solid #ffc107;
+        }
+
+        .notification.info {
+            border-left: 4px solid #17a2b8;
+        }
+
+        /* 스크롤바 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #2d2d30;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #5a5a5a;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6a6a6a;
+        }
+
+        /* 빈 파일 트리 메시지 */
+        .empty-tree {
+            padding: 20px;
+            text-align: center;
+            color: #8c8c8c;
+        }
+
+        .empty-tree .icon {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="ide-container">
+        <!-- 상단 메뉴바 -->
+        <div class="menubar">
+            <div class="logo">Pathfinder Web IDE v2</div>
+            <div class="menu-buttons">
+                <button class="menu-btn" onclick="showNewFileModal()">📄 새 파일</button>
+                <button class="menu-btn" onclick="showNewFolderModal()">📁 새 폴더</button>
+                <button class="menu-btn" onclick="saveCurrentFile()" id="saveBtn" disabled>💾 저장</button>
+                <button class="menu-btn danger" onclick="deleteSelected()" id="deleteBtn" disabled>🗑️ 삭제</button>
+                <button class="menu-btn" onclick="runCurrentFile()" id="runBtn" disabled>▶️ 실행</button>
+                <button class="menu-btn danger" onclick="stopCurrentExecution()" id="stopBtn" disabled>⏹️ 중지</button>
+            </div>
+        </div>
+
+        <!-- 메인 영역 -->
+        <div class="main-area">
+            <!-- 사이드바 -->
+            <div class="sidebar">
+                <div class="sidebar-header">파일 탐색기</div>
+                <div class="file-tree" id="fileTree">
+                    <!-- 파일 트리가 여기에 로드됩니다 -->
+                </div>
+            </div>
+
+            <!-- 에디터 영역 -->
+            <div class="editor-area">
+                <!-- 탭 바 -->
+                <div class="tab-bar" id="tabBar">
+                    <!-- 탭들이 여기에 추가됩니다 -->
+                </div>
+
+                <!-- 에디터 컨테이너 -->
+                <div class="editor-container">
+                    <div class="welcome-screen" id="welcomeScreen">
+                        <h2>🚀 Pathfinder Web IDE v2</h2>
+                        <p>파일을 선택하여 편집을 시작하세요</p>
+                        <div style="margin-top: 30px; color: #666;">
+                            <div>💡 <kbd>Ctrl+S</kbd> 파일 저장</div>
+                        </div>
+                    </div>
+                    <div id="monaco-editor" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 하단 패널 -->
+        <div class="bottom-panel collapsed" id="bottomPanel">
+            <div class="panel-header">터미널 출력</div>
+            <div class="terminal" id="terminal"></div>
+        </div>
+
+        <!-- 상태바 -->
+        <div class="statusbar">
+            <div class="statusbar-left">
+                <div class="status-item">🌿 main</div>
+                <div class="status-item" id="statusFile">파일 없음</div>
+            </div>
+            <div class="statusbar-right">
+                <div class="status-item" id="statusLanguage">-</div>
+                <div class="status-item" id="statusPosition">Ln 1, Col 1</div>
+                <div class="status-item" onclick="toggleBottomPanel()">📟 터미널</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 컨텍스트 메뉴 -->
+    <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item" onclick="contextAction('open')">📂 열기</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" onclick="contextAction('rename')">✏️ 이름 바꾸기</div>
+        <div class="context-menu-item" onclick="contextAction('delete')">🗑️ 삭제</div>
+    </div>
+
+    <!-- 새 파일 모달 -->
+    <div class="modal" id="newFileModal">
+        <div class="modal-content">
+            <div class="modal-header">새 파일 만들기</div>
+            <div class="modal-body">
+                <input type="text" class="input-field" id="newFileName" placeholder="파일 이름을 입력하세요 (예: test.py)">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal('newFileModal')">취소</button>
+                <button class="btn btn-primary" onclick="createNewFile()">만들기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 새 폴더 모달 -->
+    <div class="modal" id="newFolderModal">
+        <div class="modal-content">
+            <div class="modal-header">새 폴더 만들기</div>
+            <div class="modal-body">
+                <input type="text" class="input-field" id="newFolderName" placeholder="폴더 이름을 입력하세요">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal('newFolderModal')">취소</button>
+                <button class="btn btn-primary" onclick="createNewFolder()">만들기</button>
+            </div>
+                 </div>
+     </div>
+
+    <script>
+        // ==================== 전역 변수 ====================
+        let monaco;
+        let editor;
+        let socket;
+        let sessionId;
+        let currentFile = null;
+        let selectedItem = null;
+        let openTabs = new Map();
+        let activeTab = null;
+        let isModified = false;
+        let fileTree = [];
+
+        // ==================== 초기화 ====================
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeIDE();
+        });
+
+        async function initializeIDE() {
+            try {
+                // Monaco Editor 초기화
+                await initializeMonaco();
+                
+                // WebSocket 연결
+                initializeSocket();
+                
+                // 이벤트 리스너 등록
+                setupEventListeners();
+                
+                // 파일 트리 로드
+                setTimeout(() => {
+                    loadFileTree();
+                }, 1000);
+                
+                showNotification('IDE가 초기화되었습니다', 'success');
+            } catch (error) {
+                console.error('IDE 초기화 오류:', error);
+                showNotification('IDE 초기화 중 오류가 발생했습니다', 'error');
+            }
+        }
+
+        // ==================== Monaco Editor ====================
+        async function initializeMonaco() {
+            return new Promise((resolve, reject) => {
+                require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.44.0/min/vs' } });
+                require(['vs/editor/editor.main'], function() {
+                    monaco = window.monaco;
+                    
+                    // 다크 테마 설정
+                    monaco.editor.defineTheme('pathfinder-dark', {
+                        base: 'vs-dark',
+                        inherit: true,
+                        rules: [],
+                        colors: {
+                            'editor.background': '#1e1e1e',
+                            'editor.foreground': '#cccccc',
+                            'editorLineNumber.foreground': '#858585',
+                            'editor.selectionBackground': '#264f78',
+                            'editor.inactiveSelectionBackground': '#3a3d41'
+                        }
+                    });
+
+                    // 에디터 생성
+                    editor = monaco.editor.create(document.getElementById('monaco-editor'), {
+                        value: '',
+                        language: 'python',
+                        theme: 'pathfinder-dark',
+                        automaticLayout: true,
+                        fontSize: 14,
+                        lineNumbers: 'on',
+                        minimap: { enabled: true },
+                        scrollBeyondLastLine: false,
+                        wordWrap: 'on',
+                        tabSize: 4,
+                        insertSpaces: true
+                    });
+
+                    // 에디터 이벤트
+                    editor.onDidChangeModelContent(() => {
+                        if (currentFile && !isModified) {
+                            setModified(true);
+                        }
+                    });
+
+                    editor.onDidChangeCursorPosition((e) => {
+                        updateStatusPosition(e.position.lineNumber, e.position.column);
+                    });
+
+                    resolve();
+                });
+            });
+        }
+
+        // ==================== WebSocket ====================
+        function initializeSocket() {
+            socket = io();
+            sessionId = generateSessionId();
+
+            socket.on('connect', function() {
+                console.log('🔗 WebSocket 연결됨');
+                socket.emit('join_session', { session_id: sessionId });
+            });
+
+            socket.on('disconnect', function() {
+                console.log('🔌 WebSocket 연결 해제됨');
+            });
+
+            socket.on('session_joined', function(data) {
+                console.log('✅ 세션 참가:', data.session_id);
+            });
+
+            // 실행 관련 이벤트
+            socket.on('execution_started', function(data) {
+                showBottomPanel();
+                appendToTerminal(`${data.message}\n`);
+                updateRunButtons(true);
+            });
+
+            socket.on('execution_output', function(data) {
+                appendToTerminal(data.output);
+            });
+
+            socket.on('execution_finished', function(data) {
+                appendToTerminal(`\n${data.message}\n`);
+                updateRunButtons(false);
+            });
+
+            socket.on('execution_stopped', function(data) {
+                appendToTerminal(`\n${data.message}\n`);
+                updateRunButtons(false);
+            });
+
+            socket.on('execution_error', function(data) {
+                appendToTerminal(`\n❌ ${data.error}\n`);
+                updateRunButtons(false);
+            });
+        }
+
+        function generateSessionId() {
+            return 'session_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        // ==================== 파일 트리 ====================
+        async function loadFileTree() {
+            try {
+                const response = await fetch('/api/files');
+                const result = await response.json();
+                
+                if (result.success) {
+                    fileTree = result.data;
+                    renderFileTree();
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error('파일 트리 로드 오류:', error);
+                showNotification('파일 트리를 로드할 수 없습니다', 'error');
+                
+                // 빈 트리 표시
+                const fileTreeEl = document.getElementById('fileTree');
+                fileTreeEl.innerHTML = `
+                    <div class="empty-tree">
+                        <div class="icon">📁</div>
+                        <div>파일이 없습니다</div>
+                        <div style="font-size: 12px; margin-top: 8px;">새 파일이나 폴더를 만들어보세요</div>
+                    </div>
+                `;
+            }
+        }
+
+        function renderFileTree() {
+            const fileTreeEl = document.getElementById('fileTree');
+            
+            if (!fileTree || fileTree.length === 0) {
+                fileTreeEl.innerHTML = `
+                    <div class="empty-tree">
+                        <div class="icon">📁</div>
+                        <div>파일이 없습니다</div>
+                        <div style="font-size: 12px; margin-top: 8px;">새 파일이나 폴더를 만들어보세요</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            fileTreeEl.innerHTML = renderTreeItems(fileTree);
+        }
+
+        function renderTreeItems(items, level = 0) {
+            return items.map(item => {
+                const isFolder = item.type === 'folder';
+                const hasChildren = isFolder && item.children && item.children.length > 0;
+                const icon = getFileIcon(item);
+                const expandIcon = isFolder ? (hasChildren ? '▶' : '') : '';
+                
+                let html = `
+                    <div class="tree-item ${selectedItem === item.path ? 'selected' : ''}" 
+                         data-path="${item.path}" 
+                         data-type="${item.type}"
+                         onclick="selectTreeItem('${item.path}', '${item.type}')"
+                         oncontextmenu="showContextMenu(event, '${item.path}', '${item.type}')"
+                         ondblclick="openTreeItem('${item.path}', '${item.type}')">
+                        ${expandIcon ? `<span class="expand-icon" onclick="toggleFolder(event, '${item.path}')">${expandIcon}</span>` : '<span class="expand-icon"></span>'}
+                        <span class="icon">${icon}</span>
+                        <span class="name">${item.name}</span>
+                    </div>
+                `;
+                
+                if (hasChildren) {
+                    html += `<div class="tree-children collapsed" data-parent="${item.path}">
+                        ${renderTreeItems(item.children, level + 1)}
+                    </div>`;
+                }
+                
+                return html;
+            }).join('');
+        }
+
+        function getFileIcon(item) {
+            if (item.type === 'folder') return '📁';
+            
+            const ext = item.extension || '';
+            const iconMap = {
+                '.py': '🐍',
+                '.js': '📜',
+                '.html': '🌐',
+                '.css': '🎨',
+                '.json': '📋',
+                '.md': '📝',
+                '.txt': '📄',
+                '.sh': '⚡',
+                '.yml': '⚙️',
+                '.yaml': '⚙️'
+            };
+            
+            return iconMap[ext] || '📄';
+        }
+
+        function selectTreeItem(path, type) {
+            // 이전 선택 해제
+            document.querySelectorAll('.tree-item.selected').forEach(el => {
+                el.classList.remove('selected');
+            });
+            
+            // 새 선택
+            const element = document.querySelector(`[data-path="${path}"]`);
+            if (element) {
+                element.classList.add('selected');
+                selectedItem = path;
+                
+                // 삭제 버튼 활성화
+                document.getElementById('deleteBtn').disabled = false;
+            }
+        }
+
+        function openTreeItem(path, type) {
+            if (type === 'file') {
+                openFile(path);
+            } else {
+                toggleFolder(null, path);
+            }
+        }
+
+        function toggleFolder(event, path) {
+            if (event) {
+                event.stopPropagation();
+            }
+            
+            const childrenEl = document.querySelector(`[data-parent="${path}"]`);
+            const expandIcon = document.querySelector(`[data-path="${path}"] .expand-icon`);
+            
+            if (childrenEl && expandIcon) {
+                const isCollapsed = childrenEl.classList.contains('collapsed');
+                
+                if (isCollapsed) {
+                    childrenEl.classList.remove('collapsed');
+                    expandIcon.classList.add('expanded');
+                } else {
+                    childrenEl.classList.add('collapsed');
+                    expandIcon.classList.remove('expanded');
+                }
+            }
+        }
+
+        // ==================== 파일 관리 ====================
+        async function openFile(filepath) {
+            try {
+                // 이미 열린 탭이 있는지 확인
+                if (openTabs.has(filepath)) {
+                    switchToTab(filepath);
+                    return;
+                }
+
+                const response = await fetch(`/api/file/${encodeURIComponent(filepath)}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const fileData = result.data;
+                    
+                    // 새 탭 생성
+                    createTab(filepath, fileData.content);
+                    
+                    // 에디터에 내용 설정
+                    setEditorContent(fileData.content, filepath);
+                    
+                    // 현재 파일 설정
+                    currentFile = filepath;
+                    setModified(false);
+                    
+                    // UI 업데이트
+                    updateStatusFile(filepath);
+                    updateLanguage(filepath);
+                    
+                    showNotification(`파일 "${filepath}"를 열었습니다`, 'success');
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error('파일 열기 오류:', error);
+                showNotification(`파일을 열 수 없습니다: ${error.message}`, 'error');
+            }
+        }
+
+        async function saveCurrentFile() {
+            if (!currentFile || !editor) {
+                showNotification('저장할 파일이 없습니다', 'warning');
+                return;
+            }
+
+            try {
+                const content = editor.getValue();
+                
+                const response = await fetch(`/api/file/${encodeURIComponent(currentFile)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ content })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    setModified(false);
+                    showNotification('파일이 저장되었습니다', 'success');
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error('파일 저장 오류:', error);
+                showNotification(`파일 저장 실패: ${error.message}`, 'error');
+            }
+        }
+
+        function setEditorContent(content, filepath) {
+            if (!editor) return;
+            
+            // 언어 설정
+            const language = getLanguageFromPath(filepath);
+            const model = monaco.editor.createModel(content, language);
+            editor.setModel(model);
+            
+            // Welcome 화면 숨기기
+            document.getElementById('welcomeScreen').style.display = 'none';
+            document.getElementById('monaco-editor').style.display = 'block';
+        }
+
+        function getLanguageFromPath(filepath) {
+            const ext = filepath.split('.').pop().toLowerCase();
+            const languageMap = {
+                'py': 'python',
+                'js': 'javascript',
+                'html': 'html',
+                'css': 'css',
+                'json': 'json',
+                'md': 'markdown',
+                'sh': 'shell',
+                'yml': 'yaml',
+                'yaml': 'yaml'
+            };
+            return languageMap[ext] || 'plaintext';
+        }
+
+        function setModified(modified) {
+            isModified = modified;
+            
+            // 탭 수정 상태 업데이트
+            if (currentFile && openTabs.has(currentFile)) {
+                const tab = openTabs.get(currentFile);
+                tab.modified = modified;
+                updateTabDisplay(currentFile);
+            }
+            
+            // 저장 버튼 상태 업데이트
+            document.getElementById('saveBtn').disabled = !modified || !currentFile;
+        }
+
+        // ==================== 탭 관리 ====================
+        function createTab(filepath, content) {
+            const filename = filepath.split('/').pop();
+            const icon = getFileIcon({ extension: '.' + filepath.split('.').pop() });
+            
+            const tab = {
+                filepath,
+                filename,
+                content,
+                modified: false,
+                icon
+            };
+            
+            openTabs.set(filepath, tab);
+            renderTabs();
+            switchToTab(filepath);
+        }
+
+        function renderTabs() {
+            const tabBar = document.getElementById('tabBar');
+            
+            if (openTabs.size === 0) {
+                tabBar.innerHTML = '';
+                return;
+            }
+            
+            const tabsHtml = Array.from(openTabs.entries()).map(([filepath, tab]) => {
+                const isActive = filepath === activeTab;
+                const modifiedClass = tab.modified ? 'modified' : '';
+                
+                return `
+                    <div class="tab ${isActive ? 'active' : ''} ${modifiedClass}" 
+                         data-filepath="${filepath}"
+                         onclick="switchToTab('${filepath}')">
+                        <span class="tab-icon">${tab.icon}</span>
+                        <span class="tab-name">${tab.filename}</span>
+                        <span class="tab-close" onclick="closeTab(event, '${filepath}')">×</span>
+                    </div>
+                `;
+            }).join('');
+            
+            tabBar.innerHTML = tabsHtml;
+        }
+
+        function switchToTab(filepath) {
+            if (!openTabs.has(filepath)) return;
+            
+            const tab = openTabs.get(filepath);
+            
+            // 현재 파일 저장
+            if (currentFile && editor) {
+                const currentTab = openTabs.get(currentFile);
+                if (currentTab) {
+                    currentTab.content = editor.getValue();
+                }
+            }
+            
+            // 새 파일로 전환
+            currentFile = filepath;
+            activeTab = filepath;
+            
+            // 에디터 내용 설정
+            setEditorContent(tab.content, filepath);
+            setModified(tab.modified);
+            
+            // UI 업데이트
+            updateStatusFile(filepath);
+            updateLanguage(filepath);
+            renderTabs();
+            
+            // 실행 버튼 상태 업데이트
+            document.getElementById('runBtn').disabled = !filepath.endsWith('.py');
+        }
+
+        function closeTab(event, filepath) {
+            event.stopPropagation();
+            
+            if (!openTabs.has(filepath)) return;
+            
+            const tab = openTabs.get(filepath);
+            
+            // 수정된 파일인 경우 확인
+            if (tab.modified) {
+                if (!confirm(`"${tab.filename}" 파일이 수정되었습니다. 저장하지 않고 닫으시겠습니까?`)) {
+                    return;
+                }
+            }
+            
+            // 탭 제거
+            openTabs.delete(filepath);
+            
+            // 현재 활성 탭인 경우
+            if (filepath === activeTab) {
+                currentFile = null;
+                activeTab = null;
+                
+                // 다른 탭이 있으면 전환
+                if (openTabs.size > 0) {
+                    const nextTab = Array.from(openTabs.keys())[0];
+                    switchToTab(nextTab);
+                } else {
+                    // 모든 탭이 닫힌 경우
+                    showWelcomeScreen();
+                }
+            }
+            
+            renderTabs();
+        }
+
+        function updateTabDisplay(filepath) {
+            const tabElement = document.querySelector(`[data-filepath="${filepath}"]`);
+            if (tabElement && openTabs.has(filepath)) {
+                const tab = openTabs.get(filepath);
+                if (tab.modified) {
+                    tabElement.classList.add('modified');
+                } else {
+                    tabElement.classList.remove('modified');
+                }
+            }
+        }
+
+        function showWelcomeScreen() {
+            document.getElementById('welcomeScreen').style.display = 'flex';
+            document.getElementById('monaco-editor').style.display = 'none';
+            
+            currentFile = null;
+            setModified(false);
+            updateStatusFile('파일 없음');
+            updateLanguage('-');
+            
+                         document.getElementById('runBtn').disabled = true;
+             document.getElementById('saveBtn').disabled = true;
+         }
+
+        // ==================== 파일/폴더 생성 ====================
+        function showNewFileModal() {
+            document.getElementById('newFileModal').style.display = 'flex';
+            document.getElementById('newFileName').focus();
+        }
+
+        function showNewFolderModal() {
+            document.getElementById('newFolderModal').style.display = 'flex';
+            document.getElementById('newFolderName').focus();
+        }
+
+        function hideModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+            
+            // 입력 필드 초기화
+            if (modalId === 'newFileModal') {
+                document.getElementById('newFileName').value = '';
+            } else if (modalId === 'newFolderModal') {
+                document.getElementById('newFolderName').value = '';
+            }
+        }
+
+        async function createNewFile() {
+            const fileName = document.getElementById('newFileName').value.trim();
+            
+            if (!fileName) {
+                showNotification('파일 이름을 입력하세요', 'warning');
+                return;
+            }
+            
+            // 선택된 폴더 기준으로 경로 생성
+            let basePath = '';
+            if (selectedItem) {
+                const selectedElement = document.querySelector(`[data-path="${selectedItem}"]`);
+                const selectedType = selectedElement?.getAttribute('data-type');
+                
+                if (selectedType === 'folder') {
+                    basePath = selectedItem + '/';
+                } else {
+                    // 파일이 선택된 경우 부모 폴더 사용
+                    const parentPath = selectedItem.split('/').slice(0, -1).join('/');
+                    basePath = parentPath ? parentPath + '/' : '';
+                }
+            }
+            
+            const fullPath = basePath + fileName;
+            
+            try {
+                const response = await fetch('/api/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        path: fullPath,
+                        is_folder: false
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    hideModal('newFileModal');
+                    await loadFileTree();
+                    showNotification(result.message, 'success');
+                    
+                    // 새로 생성된 파일 열기
+                    setTimeout(() => {
+                        openFile(fullPath);
+                    }, 100);
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error('파일 생성 오류:', error);
+                showNotification(`파일 생성 실패: ${error.message}`, 'error');
+            }
+        }
+
+        async function createNewFolder() {
+            const folderName = document.getElementById('newFolderName').value.trim();
+            
+            if (!folderName) {
+                showNotification('폴더 이름을 입력하세요', 'warning');
+                return;
+            }
+            
+            // 선택된 폴더 기준으로 경로 생성
+            let basePath = '';
+            if (selectedItem) {
+                const selectedElement = document.querySelector(`[data-path="${selectedItem}"]`);
+                const selectedType = selectedElement?.getAttribute('data-type');
+                
+                if (selectedType === 'folder') {
+                    basePath = selectedItem + '/';
+                } else {
+                    // 파일이 선택된 경우 부모 폴더 사용
+                    const parentPath = selectedItem.split('/').slice(0, -1).join('/');
+                    basePath = parentPath ? parentPath + '/' : '';
+                }
+            }
+            
+            const fullPath = basePath + folderName;
+            
+            try {
+                const response = await fetch('/api/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        path: fullPath,
+                        is_folder: true
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    hideModal('newFolderModal');
+                    await loadFileTree();
+                    showNotification(result.message, 'success');
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error('폴더 생성 오류:', error);
+                showNotification(`폴더 생성 실패: ${error.message}`, 'error');
+            }
+        }
+
+        // ==================== 삭제 ====================
+        async function deleteSelected() {
+            if (!selectedItem) {
+                showNotification('삭제할 항목을 선택하세요', 'warning');
+                return;
+            }
+            
+            const selectedElement = document.querySelector(`[data-path="${selectedItem}"]`);
+            const selectedType = selectedElement?.getAttribute('data-type');
+            const itemName = selectedItem.split('/').pop();
+            
+            const confirmMessage = selectedType === 'folder' 
+                ? `폴더 "${itemName}"와 그 안의 모든 내용을 삭제하시겠습니까?`
+                : `파일 "${itemName}"를 삭제하시겠습니까?`;
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/delete/${encodeURIComponent(selectedItem)}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // 열린 탭에서 삭제된 파일 제거
+                    if (selectedType === 'file' && openTabs.has(selectedItem)) {
+                        closeTab({ stopPropagation: () => {} }, selectedItem);
+                    }
+                    
+                    selectedItem = null;
+                    document.getElementById('deleteBtn').disabled = true;
+                    
+                    await loadFileTree();
+                    showNotification(result.message, 'success');
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error('삭제 오류:', error);
+                showNotification(`삭제 실패: ${error.message}`, 'error');
+            }
+        }
+
+        // ==================== 컨텍스트 메뉴 ====================
+        function showContextMenu(event, path, type) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            const contextMenu = document.getElementById('contextMenu');
+            contextMenu.style.display = 'block';
+            contextMenu.style.left = event.pageX + 'px';
+            contextMenu.style.top = event.pageY + 'px';
+            
+            // 선택 상태 업데이트
+            selectTreeItem(path, type);
+            
+            // 컨텍스트 메뉴 데이터 저장
+            contextMenu.dataset.path = path;
+            contextMenu.dataset.type = type;
+        }
+
+        function contextAction(action) {
+            const contextMenu = document.getElementById('contextMenu');
+            const path = contextMenu.dataset.path;
+            const type = contextMenu.dataset.type;
+            
+            contextMenu.style.display = 'none';
+            
+            switch (action) {
+                case 'open':
+                    if (type === 'file') {
+                        openFile(path);
+                    } else {
+                        toggleFolder(null, path);
+                    }
+                    break;
+                case 'rename':
+                    renameItem(path, type);
+                    break;
+                case 'delete':
+                    deleteSelected();
+                    break;
+            }
+        }
+
+        async function renameItem(path, type) {
+            const currentName = path.split('/').pop();
+            const newName = prompt(`새 이름을 입력하세요:`, currentName);
+            
+            if (!newName || newName === currentName) {
+                return;
+            }
+            
+            const parentPath = path.split('/').slice(0, -1).join('/');
+            const newPath = parentPath ? `${parentPath}/${newName}` : newName;
+            
+            try {
+                const response = await fetch('/api/rename', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        old_path: path,
+                        new_path: newPath
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // 열린 탭 업데이트
+                    if (type === 'file' && openTabs.has(path)) {
+                        const tab = openTabs.get(path);
+                        openTabs.delete(path);
+                        tab.filepath = newPath;
+                        tab.filename = newName;
+                        openTabs.set(newPath, tab);
+                        
+                        if (currentFile === path) {
+                            currentFile = newPath;
+                            activeTab = newPath;
+                        }
+                        
+                        renderTabs();
+                    }
+                    
+                    selectedItem = newPath;
+                    await loadFileTree();
+                    showNotification(result.message, 'success');
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error('이름 변경 오류:', error);
+                showNotification(`이름 변경 실패: ${error.message}`, 'error');
+            }
+        }
+
+        // ==================== 코드 실행 ====================
+        async function runCurrentFile() {
+            if (!currentFile || !currentFile.endsWith('.py')) {
+                showNotification('Python 파일만 실행할 수 있습니다', 'warning');
+                return;
+            }
+            
+            // 파일 저장
+            if (isModified) {
+                await saveCurrentFile();
+            }
+            
+            try {
+                const response = await fetch(`/api/run/${encodeURIComponent(currentFile)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    clearTerminal();
+                    showNotification('코드 실행을 시작했습니다', 'info');
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error('실행 오류:', error);
+                showNotification(`실행 실패: ${error.message}`, 'error');
+            }
+        }
+
+        async function stopCurrentExecution() {
+            if (!currentFile) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/stop/${encodeURIComponent(currentFile)}`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showNotification('실행이 중지되었습니다', 'info');
+                } else {
+                    showNotification('중지할 프로세스가 없습니다', 'warning');
+                }
+            } catch (error) {
+                console.error('중지 오류:', error);
+                showNotification(`중지 실패: ${error.message}`, 'error');
+            }
+        }
+
+        function updateRunButtons(isRunning) {
+            document.getElementById('runBtn').disabled = isRunning || !currentFile || !currentFile.endsWith('.py');
+            document.getElementById('stopBtn').disabled = !isRunning;
+        }
+
+        // ==================== 터미널 ====================
+        function showBottomPanel() {
+            document.getElementById('bottomPanel').classList.remove('collapsed');
+        }
+
+        function hideBottomPanel() {
+            document.getElementById('bottomPanel').classList.add('collapsed');
+        }
+
+        function toggleBottomPanel() {
+            const panel = document.getElementById('bottomPanel');
+            panel.classList.toggle('collapsed');
+        }
+
+        function clearTerminal() {
+            document.getElementById('terminal').textContent = '';
+        }
+
+        function appendToTerminal(text) {
+            const terminal = document.getElementById('terminal');
+            terminal.textContent += text;
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        // ==================== UI 업데이트 ====================
+        function updateStatusFile(filename) {
+            document.getElementById('statusFile').textContent = filename;
+        }
+
+        function updateLanguage(filepath) {
+            const language = getLanguageFromPath(filepath);
+            const languageNames = {
+                'python': 'Python',
+                'javascript': 'JavaScript',
+                'html': 'HTML',
+                'css': 'CSS',
+                'json': 'JSON',
+                'markdown': 'Markdown',
+                'shell': 'Shell',
+                'yaml': 'YAML',
+                'plaintext': 'Text'
+            };
+            
+            document.getElementById('statusLanguage').textContent = languageNames[language] || 'Text';
+        }
+
+        function updateStatusPosition(line, column) {
+            document.getElementById('statusPosition').textContent = `Ln ${line}, Col ${column}`;
+        }
+
+        // ==================== 이벤트 리스너 ====================
+        function setupEventListeners() {
+            // 키보드 단축키
+            document.addEventListener('keydown', function(e) {
+                if (e.ctrlKey && e.key === 's') {
+                    e.preventDefault();
+                    saveCurrentFile();
+                }
+            });
+            
+            // 모달 외부 클릭 시 닫기
+            document.addEventListener('click', function(e) {
+                if (e.target.classList.contains('modal')) {
+                    e.target.style.display = 'none';
+                }
+                
+                // 컨텍스트 메뉴 숨기기
+                const contextMenu = document.getElementById('contextMenu');
+                if (!contextMenu.contains(e.target)) {
+                    contextMenu.style.display = 'none';
+                }
+            });
+            
+            // Enter 키로 모달 확인
+            document.getElementById('newFileName').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    createNewFile();
+                }
+            });
+            
+            document.getElementById('newFolderName').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    createNewFolder();
+                }
+            });
+        }
+
+        // ==================== 알림 시스템 ====================
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            // 애니메이션 시작
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 100);
+            
+            // 자동 제거
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 300);
+            }, 3000);
+        }
+     </script>
+</body>
+</html> 

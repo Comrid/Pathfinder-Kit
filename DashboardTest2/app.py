@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 """
-Pathfinder Web IDE - 간단하고 안정적인 웹 기반 코드 편집기
-라즈베리파이 원격 개발을 위한 최소 기능 IDE
+Pathfinder Web IDE - WebSocket 기반 실시간 스트리밍 웹 IDE
+라즈베리파이 원격 개발을 위한 깔끔하고 안정적인 IDE
 """
 
 from flask import Flask, request, render_template, jsonify
@@ -10,24 +11,23 @@ import os
 import shutil
 import json
 from datetime import datetime
-import traceback
 import threading
 import time
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'pathfinder-web-ide-secret'
+app.config['SECRET_KEY'] = 'pathfinder-web-ide-v2'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # 설정
 CONFIG = {
-    'project_dir': os.path.expanduser("~"),  # 홈 디렉토리 사용
+    'project_dir': os.path.expanduser("~"),  # 홈 디렉토리
     'max_file_size': 5 * 1024 * 1024,  # 5MB
     'excluded_dirs': {'.git', '__pycache__', '.vscode', 'node_modules', '.DS_Store'},
-    'allowed_extensions': {'.py', '.txt', '.md', '.json', '.html', '.css', '.js', '.sh', '.cfg'}
+    'allowed_extensions': {'.py', '.txt', '.md', '.json', '.html', '.css', '.js', '.sh', '.cfg', '.yml', '.yaml'}
 }
 
 class FileManager:
-    """파일 시스템 관리"""
+    """파일 시스템 관리 클래스"""
     
     @staticmethod
     def get_file_tree(path):
@@ -39,7 +39,7 @@ class FileManager:
                 
             items = sorted(os.listdir(path))
             
-            # 폴더 먼저
+            # 폴더 먼저 추가
             for item in items:
                 if item.startswith('.') or item in CONFIG['excluded_dirs']:
                     continue
@@ -55,7 +55,7 @@ class FileManager:
                         'children': FileManager.get_file_tree(item_path)
                     })
             
-            # 파일 나중에
+            # 파일 나중에 추가
             for item in items:
                 if item.startswith('.') or item in CONFIG['excluded_dirs']:
                     continue
@@ -75,7 +75,7 @@ class FileManager:
                     })
                     
         except Exception as e:
-            print(f"Error reading directory {path}: {e}")
+            print(f"❌ 디렉토리 읽기 오류 {path}: {e}")
         
         return tree
     
@@ -87,29 +87,36 @@ class FileManager:
             return os.path.commonpath([full_path, CONFIG['project_dir']]) == CONFIG['project_dir']
         except:
             return False
+    
+    @staticmethod
+    def get_parent_dir(filepath):
+        """파일의 부모 디렉토리 경로 반환"""
+        if not filepath or filepath == '.':
+            return ''
+        return os.path.dirname(filepath)
 
 class CodeRunner:
-    """WebSocket 기반 코드 실행 관리"""
+    """WebSocket 기반 코드 실행 관리 클래스"""
     
     running_processes = {}  # 실행 중인 프로세스 저장
     process_threads = {}    # 출력 모니터링 스레드 저장
     
     @staticmethod
-    def start_python_execution(filepath, session_id):
+    def start_execution(filepath, session_id):
         """Python 파일 WebSocket 스트리밍 실행"""
         try:
             # 기존 프로세스가 있으면 종료
             if filepath in CodeRunner.running_processes:
-                CodeRunner.stop_python_execution(filepath)
+                CodeRunner.stop_execution(filepath)
             
             # 새 프로세스 시작
             process = subprocess.Popen(
-                ['python3', '-u', filepath],  # -u: unbuffered output
+                ['python3', '-u', filepath],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=0,  # unbuffered
-                cwd=os.path.dirname(filepath)
+                bufsize=0,
+                cwd=os.path.dirname(filepath) if os.path.dirname(filepath) else CONFIG['project_dir']
             )
             
             CodeRunner.running_processes[filepath] = {
@@ -119,7 +126,7 @@ class CodeRunner:
             
             # 출력 모니터링 스레드 시작
             monitor_thread = threading.Thread(
-                target=CodeRunner._monitor_process_output,
+                target=CodeRunner._monitor_output,
                 args=(filepath, process, session_id),
                 daemon=True
             )
@@ -130,39 +137,33 @@ class CodeRunner:
             socketio.emit('execution_started', {
                 'filepath': filepath,
                 'pid': process.pid,
-                'message': f'📡 프로세스 시작됨 (PID: {process.pid})'
+                'message': f'🚀 프로세스 시작됨 (PID: {process.pid})'
             }, room=session_id)
             
-            return {
-                'success': True,
-                'message': '실행이 시작되었습니다',
-                'pid': process.pid
-            }
+            return {'success': True, 'pid': process.pid}
             
         except Exception as e:
+            error_msg = f'❌ 실행 오류: {str(e)}'
             socketio.emit('execution_error', {
                 'filepath': filepath,
-                'error': f'❌ 실행 오류: {str(e)}'
+                'error': error_msg
             }, room=session_id)
             
-            return {
-                'success': False,
-                'error': f'실행 오류: {str(e)}'
-            }
+            return {'success': False, 'error': str(e)}
     
     @staticmethod
-    def _monitor_process_output(filepath, process, session_id):
-        """프로세스 출력을 실시간으로 모니터링하고 WebSocket으로 전송"""
+    def _monitor_output(filepath, process, session_id):
+        """프로세스 출력을 실시간으로 모니터링"""
         try:
             while True:
-                # 프로세스가 종료되었는지 확인
+                # 프로세스 종료 확인
                 if process.poll() is not None:
                     # 남은 출력 읽기
-                    remaining_output = process.stdout.read()
-                    if remaining_output:
+                    remaining = process.stdout.read()
+                    if remaining:
                         socketio.emit('execution_output', {
                             'filepath': filepath,
-                            'output': remaining_output
+                            'output': remaining
                         }, room=session_id)
                     
                     # 종료 메시지 전송
@@ -189,7 +190,6 @@ class CodeRunner:
                             'output': line
                         }, room=session_id)
                     else:
-                        # 출력이 없으면 잠시 대기
                         time.sleep(0.01)  # 10ms 대기
                         
                 except Exception as e:
@@ -206,8 +206,8 @@ class CodeRunner:
             }, room=session_id)
     
     @staticmethod
-    def stop_python_execution(filepath):
-        """Python 파일 실행 중지"""
+    def stop_execution(filepath):
+        """실행 중지"""
         try:
             if filepath in CodeRunner.running_processes:
                 process_info = CodeRunner.running_processes[filepath]
@@ -233,28 +233,20 @@ class CodeRunner:
                 if filepath in CodeRunner.process_threads:
                     del CodeRunner.process_threads[filepath]
                 
-                return {
-                    'success': True,
-                    'message': '실행이 중지되었습니다'
-                }
+                return {'success': True}
             else:
-                return {
-                    'success': False,
-                    'error': '실행 중인 프로세스가 없습니다'
-                }
+                return {'success': False, 'error': '실행 중인 프로세스가 없습니다'}
                 
         except Exception as e:
-            return {
-                'success': False,
-                'error': f'중지 오류: {str(e)}'
-            }
+            return {'success': False, 'error': str(e)}
     
     @staticmethod
     def is_running(filepath):
-        """파일이 실행 중인지 확인"""
+        """실행 중인지 확인"""
         return filepath in CodeRunner.running_processes
 
-# 라우트
+# ==================== 라우트 ====================
+
 @app.route('/')
 def index():
     """메인 페이지"""
@@ -264,19 +256,10 @@ def index():
 def get_files():
     """파일 트리 API"""
     try:
-        print(f"📁 파일 트리 요청 - 디렉토리: {CONFIG['project_dir']}")
         tree = FileManager.get_file_tree(CONFIG['project_dir'])
-        print(f"📂 파일 트리 결과: {len(tree)}개 항목")
-        return jsonify({
-            'success': True,
-            'data': tree
-        })
+        return jsonify({'success': True, 'data': tree})
     except Exception as e:
-        print(f"❌ 파일 트리 오류: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/file/<path:filepath>')
 def get_file(filepath):
@@ -326,99 +309,10 @@ def save_file(filepath):
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
         
-        return jsonify({
-            'success': True,
-            'message': '파일이 저장되었습니다'
-        })
+        return jsonify({'success': True, 'message': '파일이 저장되었습니다'})
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/run/<path:filepath>', methods=['POST'])
-def run_file(filepath):
-    """파일 실행 (WebSocket 스트리밍)"""
-    try:
-        if not FileManager.is_safe_path(filepath):
-            return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
-        
-        full_path = os.path.join(CONFIG['project_dir'], filepath)
-        
-        if not os.path.exists(full_path):
-            return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다'}), 404
-        
-        if not filepath.endswith('.py'):
-            return jsonify({'success': False, 'error': 'Python 파일만 실행할 수 있습니다'}), 400
-        
-        # 세션 ID는 프론트엔드에서 전달받음
-        session_id = request.json.get('session_id') if request.json else None
-        if not session_id:
-            return jsonify({'success': False, 'error': '세션 ID가 필요합니다'}), 400
-        
-        result = CodeRunner.start_python_execution(full_path, session_id)
-        return jsonify(result)
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/stop/<path:filepath>', methods=['POST'])
-def stop_execution(filepath):
-    """실행 중지"""
-    try:
-        if not FileManager.is_safe_path(filepath):
-            return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
-        
-        full_path = os.path.join(CONFIG['project_dir'], filepath)
-        result = CodeRunner.stop_python_execution(full_path)
-        return jsonify(result)
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/status/<path:filepath>')
-def get_execution_status(filepath):
-    """실행 상태 확인"""
-    try:
-        if not FileManager.is_safe_path(filepath):
-            return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
-        
-        full_path = os.path.join(CONFIG['project_dir'], filepath)
-        is_running = CodeRunner.is_running(full_path)
-        
-        return jsonify({
-            'success': True,
-            'running': is_running
-        })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-# WebSocket 이벤트 핸들러
-@socketio.on('connect')
-def handle_connect():
-    """클라이언트 연결"""
-    print(f"클라이언트 연결됨: {request.sid}")
-    emit('connected', {'message': '서버에 연결되었습니다'})
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    """클라이언트 연결 해제"""
-    print(f"클라이언트 연결 해제됨: {request.sid}")
-    
-    # 해당 세션의 실행 중인 프로세스들 정리
-    processes_to_stop = []
-    for filepath, process_info in CodeRunner.running_processes.items():
-        if process_info['session_id'] == request.sid:
-            processes_to_stop.append(filepath)
-    
-    for filepath in processes_to_stop:
-        CodeRunner.stop_python_execution(filepath)
-
-@socketio.on('join_session')
-def handle_join_session(data):
-    """세션 참가"""
-    session_id = data.get('session_id', request.sid)
-    join_room(session_id)
-    emit('session_joined', {'session_id': session_id})
 
 @app.route('/api/create', methods=['POST'])
 def create_item():
@@ -448,11 +342,7 @@ def create_item():
                 f.write('')
             message = f'파일 "{os.path.basename(path)}"가 생성되었습니다'
         
-        return jsonify({
-            'success': True,
-            'message': message,
-            'path': path
-        })
+        return jsonify({'success': True, 'message': message, 'path': path})
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -476,17 +366,14 @@ def delete_item(filepath):
             os.remove(full_path)
             message = '파일이 삭제되었습니다'
         
-        return jsonify({
-            'success': True,
-            'message': message
-        })
+        return jsonify({'success': True, 'message': message})
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/rename', methods=['POST'])
 def rename_item():
-    """파일/폴더 이름 변경"""
+    """파일/폴더 이름 변경 (실제 이름 변경, 복사 아님)"""
     try:
         data = request.get_json()
         old_path = data.get('old_path', '')
@@ -504,18 +391,85 @@ def rename_item():
         if os.path.exists(new_full_path):
             return jsonify({'success': False, 'error': '대상 경로에 이미 파일이 존재합니다'}), 409
         
+        # 실제 이름 변경 (os.rename 사용)
         os.makedirs(os.path.dirname(new_full_path), exist_ok=True)
         os.rename(old_full_path, new_full_path)
         
-        return jsonify({
-            'success': True,
-            'message': '이름이 변경되었습니다'
-        })
+        return jsonify({'success': True, 'message': '이름이 변경되었습니다'})
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# 에러 핸들러
+@app.route('/api/run/<path:filepath>', methods=['POST'])
+def run_file(filepath):
+    """파일 실행"""
+    try:
+        if not FileManager.is_safe_path(filepath):
+            return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
+        
+        full_path = os.path.join(CONFIG['project_dir'], filepath)
+        
+        if not os.path.exists(full_path):
+            return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다'}), 404
+        
+        if not filepath.endswith('.py'):
+            return jsonify({'success': False, 'error': 'Python 파일만 실행할 수 있습니다'}), 400
+        
+        session_id = request.json.get('session_id') if request.json else None
+        if not session_id:
+            return jsonify({'success': False, 'error': '세션 ID가 필요합니다'}), 400
+        
+        result = CodeRunner.start_execution(full_path, session_id)
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/stop/<path:filepath>', methods=['POST'])
+def stop_execution(filepath):
+    """실행 중지"""
+    try:
+        if not FileManager.is_safe_path(filepath):
+            return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
+        
+        full_path = os.path.join(CONFIG['project_dir'], filepath)
+        result = CodeRunner.stop_execution(full_path)
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ==================== WebSocket 이벤트 ====================
+
+@socketio.on('connect')
+def handle_connect():
+    """클라이언트 연결"""
+    print(f"🔗 클라이언트 연결: {request.sid}")
+    emit('connected', {'message': '서버에 연결되었습니다'})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """클라이언트 연결 해제"""
+    print(f"🔌 클라이언트 연결 해제: {request.sid}")
+    
+    # 해당 세션의 실행 중인 프로세스들 정리
+    processes_to_stop = []
+    for filepath, process_info in CodeRunner.running_processes.items():
+        if process_info['session_id'] == request.sid:
+            processes_to_stop.append(filepath)
+    
+    for filepath in processes_to_stop:
+        CodeRunner.stop_execution(filepath)
+
+@socketio.on('join_session')
+def handle_join_session(data):
+    """세션 참가"""
+    session_id = data.get('session_id', request.sid)
+    join_room(session_id)
+    emit('session_joined', {'session_id': session_id})
+
+# ==================== 에러 핸들러 ====================
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'success': False, 'error': 'API를 찾을 수 없습니다'}), 404
@@ -525,9 +479,8 @@ def internal_error(error):
     return jsonify({'success': False, 'error': '서버 오류가 발생했습니다'}), 500
 
 if __name__ == '__main__':
-    print("🚀 Pathfinder Web IDE 시작!")
+    print("🚀 Pathfinder Web IDE v2 시작!")
     print(f"📁 프로젝트 디렉토리: {CONFIG['project_dir']}")
-    print(f"📂 디렉토리 내용: {os.listdir(CONFIG['project_dir'])}")
     print("🌐 브라우저에서 http://라즈베리파이IP:5000 으로 접속하세요")
     print("⚡ WebSocket 실시간 스트리밍 지원")
     
