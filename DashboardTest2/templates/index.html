@@ -7,10 +7,33 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
     
     <!-- Monaco Editor -->
-    <script src="https://unpkg.com/monaco-editor@0.44.0/min/vs/loader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
     
     <!-- Socket.IO -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" 
+            onload="window.socketIOLoaded = true; console.log('✅ Socket.IO 로드 완료');"
+            onerror="loadSocketIOBackup()"></script>
+    
+    <script>
+        // Socket.IO 로드 상태 추적
+        window.socketIOLoaded = false;
+        
+        // Socket.IO 백업 로더
+        function loadSocketIOBackup() {
+            console.log('⚠️ 메인 Socket.IO CDN 실패, 백업 로드 시도...');
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js';
+            script.onload = () => {
+                window.socketIOLoaded = true;
+                console.log('✅ 백업 Socket.IO 로드 완료');
+            };
+            script.onerror = () => {
+                console.error('❌ 모든 Socket.IO CDN 실패');
+                window.socketIOLoaded = false;
+            };
+            document.head.appendChild(script);
+        }
+    </script>
     
     <style>
         * {
@@ -626,33 +649,63 @@
 
         async function initializeIDE() {
             try {
-                // Monaco Editor 초기화
-                await initializeMonaco();
+                console.log('🚀 IDE 초기화 시작...');
                 
-                // WebSocket 연결
-                initializeSocket();
-                
-                // 이벤트 리스너 등록
+                // 이벤트 리스너 먼저 등록
                 setupEventListeners();
                 
+                // WebSocket 연결
+                console.log('📡 WebSocket 연결 중...');
+                initializeSocket();
+                
+                // Monaco Editor 초기화 (비동기)
+                console.log('📝 Monaco Editor 로드 중...');
+                try {
+                    await initializeMonaco();
+                    console.log('✅ Monaco Editor 로드 완료');
+                } catch (monacoError) {
+                    console.warn('⚠️ Monaco Editor 로드 실패, 기본 텍스트 에디터 사용:', monacoError);
+                    showNotification('에디터 로드 실패 - 기본 모드로 실행됩니다', 'warning');
+                }
+                
                 // 파일 트리 로드
+                console.log('📁 파일 트리 로드 중...');
                 setTimeout(() => {
                     loadFileTree();
-                }, 1000);
+                }, 500);
                 
                 showNotification('IDE가 초기화되었습니다', 'success');
+                console.log('✅ IDE 초기화 완료');
+                
             } catch (error) {
-                console.error('IDE 초기화 오류:', error);
-                showNotification('IDE 초기화 중 오류가 발생했습니다', 'error');
+                console.error('❌ IDE 초기화 오류:', error);
+                showNotification(`IDE 초기화 실패: ${error.message}`, 'error');
+                
+                // 최소한의 기능이라도 동작하도록
+                try {
+                    setupEventListeners();
+                    initializeSocket();
+                    setTimeout(() => {
+                        loadFileTree();
+                    }, 1000);
+                } catch (fallbackError) {
+                    console.error('❌ 대체 초기화도 실패:', fallbackError);
+                }
             }
         }
 
         // ==================== Monaco Editor ====================
         async function initializeMonaco() {
             return new Promise((resolve, reject) => {
-                require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.44.0/min/vs' } });
-                require(['vs/editor/editor.main'], function() {
-                    monaco = window.monaco;
+                try {
+                    require.config({ 
+                        paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs' },
+                        'vs/nls': { availableLanguages: { '*': 'en' } }
+                    });
+                    
+                    require(['vs/editor/editor.main'], function() {
+                        try {
+                            monaco = window.monaco;
                     
                     // 다크 테마 설정
                     monaco.editor.defineTheme('pathfinder-dark', {
@@ -694,54 +747,111 @@
                         updateStatusPosition(e.position.lineNumber, e.position.column);
                     });
 
-                    resolve();
-                });
+                            resolve();
+                        } catch (editorError) {
+                            console.error('Monaco Editor 생성 오류:', editorError);
+                            reject(editorError);
+                        }
+                    }, function(error) {
+                        console.error('Monaco Editor 로드 오류:', error);
+                        reject(error);
+                    });
+                } catch (configError) {
+                    console.error('Monaco Editor 설정 오류:', configError);
+                    reject(configError);
+                }
             });
         }
 
         // ==================== WebSocket ====================
         function initializeSocket() {
-            socket = io();
-            sessionId = generateSessionId();
+            // Socket.IO 라이브러리 로드 확인
+            if (typeof io === 'undefined') {
+                console.log('⏳ Socket.IO 라이브러리 로드 대기 중...');
+                
+                // 최대 10초 대기
+                let attempts = 0;
+                const maxAttempts = 100; // 10초 (100ms * 100)
+                
+                const checkInterval = setInterval(() => {
+                    attempts++;
+                    
+                    if (typeof io !== 'undefined') {
+                        clearInterval(checkInterval);
+                        console.log('✅ Socket.IO 라이브러리 로드 확인됨');
+                        connectSocket();
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(checkInterval);
+                        console.error('❌ Socket.IO 라이브러리 로드 타임아웃');
+                        showNotification('WebSocket 연결 실패 - 새로고침 해주세요', 'error');
+                    }
+                }, 100);
+                
+                return;
+            }
+            
+            connectSocket();
+        }
+        
+        function connectSocket() {
+            try {
+                socket = io({
+                    transports: ['websocket', 'polling'],
+                    timeout: 10000,
+                    forceNew: true
+                });
+                sessionId = generateSessionId();
 
-            socket.on('connect', function() {
-                console.log('🔗 WebSocket 연결됨');
-                socket.emit('join_session', { session_id: sessionId });
-            });
+                socket.on('connect', function() {
+                    console.log('🔗 WebSocket 연결됨 (ID: ' + socket.id + ')');
+                    socket.emit('join_session', { session_id: sessionId });
+                    showNotification('서버에 연결되었습니다', 'success');
+                });
 
-            socket.on('disconnect', function() {
-                console.log('🔌 WebSocket 연결 해제됨');
-            });
+                socket.on('disconnect', function(reason) {
+                    console.log('🔌 WebSocket 연결 해제됨:', reason);
+                    showNotification('서버 연결이 끊어졌습니다', 'warning');
+                });
+                
+                socket.on('connect_error', function(error) {
+                    console.error('❌ WebSocket 연결 오류:', error);
+                    showNotification('서버 연결 실패: ' + error.message, 'error');
+                });
 
-            socket.on('session_joined', function(data) {
-                console.log('✅ 세션 참가:', data.session_id);
-            });
+                socket.on('session_joined', function(data) {
+                    console.log('✅ 세션 참가:', data.session_id);
+                });
 
-            // 실행 관련 이벤트
-            socket.on('execution_started', function(data) {
-                showBottomPanel();
-                appendToTerminal(`${data.message}\n`);
-                updateRunButtons(true);
-            });
+                // 실행 관련 이벤트
+                socket.on('execution_started', function(data) {
+                    showBottomPanel();
+                    appendToTerminal(`${data.message}\n`);
+                    updateRunButtons(true);
+                });
 
-            socket.on('execution_output', function(data) {
-                appendToTerminal(data.output);
-            });
+                socket.on('execution_output', function(data) {
+                    appendToTerminal(data.output);
+                });
 
-            socket.on('execution_finished', function(data) {
-                appendToTerminal(`\n${data.message}\n`);
-                updateRunButtons(false);
-            });
+                socket.on('execution_finished', function(data) {
+                    appendToTerminal(`\n${data.message}\n`);
+                    updateRunButtons(false);
+                });
 
-            socket.on('execution_stopped', function(data) {
-                appendToTerminal(`\n${data.message}\n`);
-                updateRunButtons(false);
-            });
+                socket.on('execution_stopped', function(data) {
+                    appendToTerminal(`\n${data.message}\n`);
+                    updateRunButtons(false);
+                });
 
-            socket.on('execution_error', function(data) {
-                appendToTerminal(`\n❌ ${data.error}\n`);
-                updateRunButtons(false);
-            });
+                socket.on('execution_error', function(data) {
+                    appendToTerminal(`\n❌ ${data.error}\n`);
+                    updateRunButtons(false);
+                });
+                
+            } catch (error) {
+                console.error('❌ Socket 초기화 오류:', error);
+                showNotification('WebSocket 초기화 실패: ' + error.message, 'error');
+            }
         }
 
         function generateSessionId() {
