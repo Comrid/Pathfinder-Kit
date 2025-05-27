@@ -86,9 +86,11 @@ class FileManager:
 class CodeRunner:
     """코드 실행 관리"""
     
+    running_processes = {}  # 실행 중인 프로세스 저장
+    
     @staticmethod
     def run_python_file(filepath):
-        """Python 파일 실행"""
+        """Python 파일 실행 (일반 모드 - 기존 방식)"""
         try:
             result = subprocess.run(
                 ['python3', filepath],
@@ -119,6 +121,125 @@ class CodeRunner:
                 'success': False,
                 'output': f'❌ 실행 오류: {str(e)}',
                 'exit_code': -1
+            }
+    
+    @staticmethod
+    def start_python_stream(filepath):
+        """Python 파일 스트리밍 실행 시작"""
+        try:
+            # 기존 프로세스가 있으면 종료
+            if filepath in CodeRunner.running_processes:
+                CodeRunner.stop_python_stream(filepath)
+            
+            # 새 프로세스 시작
+            process = subprocess.Popen(
+                ['python3', '-u', filepath],  # -u: unbuffered output
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,  # line buffered
+                cwd=os.path.dirname(filepath)
+            )
+            
+            CodeRunner.running_processes[filepath] = process
+            
+            return {
+                'success': True,
+                'message': '스트리밍 실행 시작됨',
+                'pid': process.pid
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'실행 오류: {str(e)}'
+            }
+    
+    @staticmethod
+    def stop_python_stream(filepath):
+        """Python 파일 스트리밍 실행 중지"""
+        try:
+            if filepath in CodeRunner.running_processes:
+                process = CodeRunner.running_processes[filepath]
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                
+                del CodeRunner.running_processes[filepath]
+                
+                return {
+                    'success': True,
+                    'message': '실행이 중지되었습니다'
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': '실행 중인 프로세스가 없습니다'
+                }
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'중지 오류: {str(e)}'
+            }
+    
+    @staticmethod
+    def get_stream_output(filepath):
+        """스트리밍 출력 가져오기"""
+        try:
+            if filepath not in CodeRunner.running_processes:
+                return {
+                    'success': False,
+                    'error': '실행 중인 프로세스가 없습니다'
+                }
+            
+            process = CodeRunner.running_processes[filepath]
+            
+            # 프로세스가 종료되었는지 확인
+            if process.poll() is not None:
+                # 프로세스 종료됨
+                remaining_output = process.stdout.read()
+                del CodeRunner.running_processes[filepath]
+                
+                return {
+                    'success': True,
+                    'output': remaining_output,
+                    'finished': True,
+                    'exit_code': process.returncode
+                }
+            
+            # 새로운 출력 읽기 (논블로킹)
+            import select
+            import sys
+            
+            if sys.platform != 'win32':
+                # Unix/Linux 시스템
+                ready, _, _ = select.select([process.stdout], [], [], 0.1)
+                if ready:
+                    output = process.stdout.readline()
+                else:
+                    output = ''
+            else:
+                # Windows 시스템 (간단한 방식)
+                try:
+                    output = process.stdout.readline()
+                except:
+                    output = ''
+            
+            return {
+                'success': True,
+                'output': output,
+                'finished': False,
+                'pid': process.pid
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'출력 읽기 오류: {str(e)}'
             }
 
 # 라우트
@@ -200,7 +321,7 @@ def save_file(filepath):
 
 @app.route('/api/run/<path:filepath>', methods=['POST'])
 def run_file(filepath):
-    """파일 실행"""
+    """파일 실행 (일반 모드)"""
     try:
         if not FileManager.is_safe_path(filepath):
             return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
@@ -214,6 +335,55 @@ def run_file(filepath):
             return jsonify({'success': False, 'error': 'Python 파일만 실행할 수 있습니다'}), 400
         
         result = CodeRunner.run_python_file(full_path)
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/stream/start/<path:filepath>', methods=['POST'])
+def start_stream(filepath):
+    """스트리밍 실행 시작"""
+    try:
+        if not FileManager.is_safe_path(filepath):
+            return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
+        
+        full_path = os.path.join(CONFIG['project_dir'], filepath)
+        
+        if not os.path.exists(full_path):
+            return jsonify({'success': False, 'error': '파일을 찾을 수 없습니다'}), 404
+        
+        if not filepath.endswith('.py'):
+            return jsonify({'success': False, 'error': 'Python 파일만 실행할 수 있습니다'}), 400
+        
+        result = CodeRunner.start_python_stream(full_path)
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/stream/stop/<path:filepath>', methods=['POST'])
+def stop_stream(filepath):
+    """스트리밍 실행 중지"""
+    try:
+        if not FileManager.is_safe_path(filepath):
+            return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
+        
+        full_path = os.path.join(CONFIG['project_dir'], filepath)
+        result = CodeRunner.stop_python_stream(full_path)
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/stream/output/<path:filepath>')
+def get_stream_output(filepath):
+    """스트리밍 출력 가져오기"""
+    try:
+        if not FileManager.is_safe_path(filepath):
+            return jsonify({'success': False, 'error': '접근 권한이 없습니다'}), 403
+        
+        full_path = os.path.join(CONFIG['project_dir'], filepath)
+        result = CodeRunner.get_stream_output(full_path)
         return jsonify(result)
         
     except Exception as e:
