@@ -9,26 +9,44 @@
     <!-- Monaco Editor -->
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
     
-    <!-- Socket.IO -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" 
-            onload="window.socketIOLoaded = true; console.log('✅ Socket.IO 로드 완료');"
-            onerror="loadSocketIOBackup()"></script>
+    <!-- Socket.IO (로컬 파일) -->
+    <script src="/static/js/socket.io.min.js" 
+            onload="window.socketIOLoaded = true; console.log('✅ Socket.IO 로컬 파일 로드 완료');"
+            onerror="loadSocketIOFromCDN()"></script>
     
     <script>
         // Socket.IO 로드 상태 추적
         window.socketIOLoaded = false;
         
-        // Socket.IO 백업 로더
-        function loadSocketIOBackup() {
-            console.log('⚠️ 메인 Socket.IO CDN 실패, 백업 로드 시도...');
+        // Socket.IO CDN 백업 로더 (로컬 파일 실패 시)
+        function loadSocketIOFromCDN() {
+            console.log('⚠️ 로컬 Socket.IO 파일 실패, CDN 로드 시도...');
+            const script = document.createElement('script');
+            script.src = 'https://cdn.socket.io/4.7.2/socket.io.min.js';
+            script.onload = () => {
+                window.socketIOLoaded = true;
+                console.log('✅ CDN Socket.IO 로드 완료');
+            };
+            script.onerror = () => {
+                console.error('❌ 모든 Socket.IO 로드 방법 실패');
+                window.socketIOLoaded = false;
+                // 최후의 수단: 다른 CDN 시도
+                loadSocketIOFinalBackup();
+            };
+            document.head.appendChild(script);
+        }
+        
+        // 최종 백업 CDN
+        function loadSocketIOFinalBackup() {
+            console.log('🆘 최종 백업 CDN 시도...');
             const script = document.createElement('script');
             script.src = 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js';
             script.onload = () => {
                 window.socketIOLoaded = true;
-                console.log('✅ 백업 Socket.IO 로드 완료');
+                console.log('✅ 최종 백업 Socket.IO 로드 완료');
             };
             script.onerror = () => {
-                console.error('❌ 모든 Socket.IO CDN 실패');
+                console.error('❌ 모든 Socket.IO 로드 시도 실패');
                 window.socketIOLoaded = false;
             };
             document.head.appendChild(script);
@@ -698,55 +716,30 @@
         async function initializeMonaco() {
             return new Promise((resolve, reject) => {
                 try {
+                    // Monaco가 이미 로드되어 있는지 확인
+                    if (window.monaco) {
+                        console.log('✅ Monaco Editor 이미 로드됨');
+                        monaco = window.monaco;
+                        createMonacoEditor();
+                        resolve();
+                        return;
+                    }
+                    
+                    // require가 이미 설정되어 있는지 확인
+                    if (typeof require !== 'undefined' && require.config) {
+                        console.log('⚠️ require 이미 설정됨, 재설정 시도...');
+                    }
+                    
                     require.config({ 
-                        paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs' },
-                        'vs/nls': { availableLanguages: { '*': 'en' } }
+                        paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs' }
                     });
                     
                     require(['vs/editor/editor.main'], function() {
                         try {
+                            console.log('✅ Monaco Editor 모듈 로드 완료');
                             monaco = window.monaco;
                     
-                    // 다크 테마 설정
-                    monaco.editor.defineTheme('pathfinder-dark', {
-                        base: 'vs-dark',
-                        inherit: true,
-                        rules: [],
-                        colors: {
-                            'editor.background': '#1e1e1e',
-                            'editor.foreground': '#cccccc',
-                            'editorLineNumber.foreground': '#858585',
-                            'editor.selectionBackground': '#264f78',
-                            'editor.inactiveSelectionBackground': '#3a3d41'
-                        }
-                    });
-
-                    // 에디터 생성
-                    editor = monaco.editor.create(document.getElementById('monaco-editor'), {
-                        value: '',
-                        language: 'python',
-                        theme: 'pathfinder-dark',
-                        automaticLayout: true,
-                        fontSize: 14,
-                        lineNumbers: 'on',
-                        minimap: { enabled: true },
-                        scrollBeyondLastLine: false,
-                        wordWrap: 'on',
-                        tabSize: 4,
-                        insertSpaces: true
-                    });
-
-                    // 에디터 이벤트
-                    editor.onDidChangeModelContent(() => {
-                        if (currentFile && !isModified) {
-                            setModified(true);
-                        }
-                    });
-
-                    editor.onDidChangeCursorPosition((e) => {
-                        updateStatusPosition(e.position.lineNumber, e.position.column);
-                    });
-
+                            createMonacoEditor();
                             resolve();
                         } catch (editorError) {
                             console.error('Monaco Editor 생성 오류:', editorError);
@@ -762,6 +755,58 @@
                 }
             });
         }
+        
+        function createMonacoEditor() {
+            try {
+                console.log('🎨 Monaco Editor 테마 및 에디터 생성 중...');
+                
+                // 다크 테마 설정
+                monaco.editor.defineTheme('pathfinder-dark', {
+                    base: 'vs-dark',
+                    inherit: true,
+                    rules: [],
+                    colors: {
+                        'editor.background': '#1e1e1e',
+                        'editor.foreground': '#cccccc',
+                        'editorLineNumber.foreground': '#858585',
+                        'editor.selectionBackground': '#264f78',
+                        'editor.inactiveSelectionBackground': '#3a3d41'
+                    }
+                });
+
+                // 에디터 생성
+                editor = monaco.editor.create(document.getElementById('monaco-editor'), {
+                    value: '',
+                    language: 'python',
+                    theme: 'pathfinder-dark',
+                    automaticLayout: true,
+                    fontSize: 14,
+                    lineNumbers: 'on',
+                    minimap: { enabled: true },
+                    scrollBeyondLastLine: false,
+                    wordWrap: 'on',
+                    tabSize: 4,
+                    insertSpaces: true
+                });
+
+                // 에디터 이벤트
+                editor.onDidChangeModelContent(() => {
+                    if (currentFile && !isModified) {
+                        setModified(true);
+                    }
+                });
+
+                editor.onDidChangeCursorPosition((e) => {
+                    updateStatusPosition(e.position.lineNumber, e.position.column);
+                });
+                
+                console.log('✅ Monaco Editor 생성 완료');
+                
+            } catch (error) {
+                console.error('❌ Monaco Editor 생성 오류:', error);
+                throw error;
+            }
+        }
 
         // ==================== WebSocket ====================
         function initializeSocket() {
@@ -769,9 +814,9 @@
             if (typeof io === 'undefined') {
                 console.log('⏳ Socket.IO 라이브러리 로드 대기 중...');
                 
-                // 최대 10초 대기
+                // 최대 20초 대기 (더 길게)
                 let attempts = 0;
-                const maxAttempts = 100; // 10초 (100ms * 100)
+                const maxAttempts = 200; // 20초 (100ms * 200)
                 
                 const checkInterval = setInterval(() => {
                     attempts++;
@@ -795,15 +840,24 @@
         
         function connectSocket() {
             try {
+                // 현재 페이지의 호스트와 포트를 자동으로 감지
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const host = window.location.host;
+                
                 socket = io({
                     transports: ['websocket', 'polling'],
                     timeout: 10000,
-                    forceNew: true
+                    forceNew: true,
+                    autoConnect: true,
+                    reconnection: true,
+                    reconnectionAttempts: 5,
+                    reconnectionDelay: 1000
                 });
                 sessionId = generateSessionId();
 
                 socket.on('connect', function() {
                     console.log('🔗 WebSocket 연결됨 (ID: ' + socket.id + ')');
+                    console.log('📍 연결 URL:', window.location.origin);
                     socket.emit('join_session', { session_id: sessionId });
                     showNotification('서버에 연결되었습니다', 'success');
                 });
@@ -815,7 +869,29 @@
                 
                 socket.on('connect_error', function(error) {
                     console.error('❌ WebSocket 연결 오류:', error);
+                    console.error('🔍 에러 상세:', {
+                        message: error.message,
+                        description: error.description,
+                        context: error.context,
+                        type: error.type
+                    });
+                    console.error('🌐 현재 URL:', window.location.href);
+                    console.error('🔌 Socket.IO 버전:', io.version);
                     showNotification('서버 연결 실패: ' + error.message, 'error');
+                });
+                
+                socket.on('reconnect', function(attemptNumber) {
+                    console.log('🔄 WebSocket 재연결 성공 (시도 ' + attemptNumber + '번)');
+                    showNotification('서버에 재연결되었습니다', 'success');
+                });
+                
+                socket.on('reconnect_error', function(error) {
+                    console.error('❌ WebSocket 재연결 실패:', error);
+                });
+                
+                socket.on('reconnect_failed', function() {
+                    console.error('❌ WebSocket 재연결 완전 실패');
+                    showNotification('서버 재연결에 실패했습니다', 'error');
                 });
 
                 socket.on('session_joined', function(data) {
