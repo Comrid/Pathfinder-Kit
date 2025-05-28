@@ -11,24 +11,26 @@
     
     <!-- Socket.IO (로컬 파일) -->
     <script src="/static/js/socket.io.min.js" 
-            onload="window.socketIOLoaded = true; console.log('✅ Socket.IO 로컬 파일 로드 완료');"
+            onload="window.socketIOLoaded = true; console.log('✅ Socket.IO 로컬 파일 로드 완료'); window.socketIOReady = true;"
             onerror="loadSocketIOFromCDN()"></script>
     
     <script>
         // Socket.IO 로드 상태 추적
         window.socketIOLoaded = false;
+        window.socketIOReady = false;
         
         // Socket.IO CDN 백업 로더 (로컬 파일 실패 시)
         function loadSocketIOFromCDN() {
             console.log('⚠️ 로컬 Socket.IO 파일 실패, CDN 로드 시도...');
             const script = document.createElement('script');
-            script.src = 'https://cdn.socket.io/4.7.2/socket.io.min.js';
+            script.src = 'https://cdn.socket.io/4.8.1/socket.io.min.js';
             script.onload = () => {
                 window.socketIOLoaded = true;
+                window.socketIOReady = true;
                 console.log('✅ CDN Socket.IO 로드 완료');
             };
             script.onerror = () => {
-                console.error('❌ 모든 Socket.IO 로드 방법 실패');
+                console.error('❌ CDN Socket.IO 로드 실패');
                 window.socketIOLoaded = false;
                 // 최후의 수단: 다른 CDN 시도
                 loadSocketIOFinalBackup();
@@ -40,14 +42,37 @@
         function loadSocketIOFinalBackup() {
             console.log('🆘 최종 백업 CDN 시도...');
             const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js';
+            script.src = 'https://unpkg.com/socket.io-client@4.8.1/dist/socket.io.min.js';
             script.onload = () => {
                 window.socketIOLoaded = true;
+                window.socketIOReady = true;
                 console.log('✅ 최종 백업 Socket.IO 로드 완료');
             };
             script.onerror = () => {
                 console.error('❌ 모든 Socket.IO 로드 시도 실패');
                 window.socketIOLoaded = false;
+                window.socketIOReady = false;
+                // 마지막 시도: jsdelivr CDN
+                loadSocketIOLastResort();
+            };
+            document.head.appendChild(script);
+        }
+        
+        // 마지막 시도 CDN
+        function loadSocketIOLastResort() {
+            console.log('🚨 마지막 시도: jsdelivr CDN...');
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/socket.io-client@4.8.1/dist/socket.io.min.js';
+            script.onload = () => {
+                window.socketIOLoaded = true;
+                window.socketIOReady = true;
+                console.log('✅ 마지막 시도 Socket.IO 로드 완료');
+            };
+            script.onerror = () => {
+                console.error('❌ 모든 Socket.IO CDN 로드 실패 - 오프라인 모드로 전환');
+                window.socketIOLoaded = false;
+                window.socketIOReady = false;
+                showNotification('Socket.IO 로드 실패 - 실시간 기능이 비활성화됩니다', 'error');
             };
             document.head.appendChild(script);
         }
@@ -644,15 +669,15 @@
                 <button class="btn btn-secondary" onclick="hideModal('newFolderModal')">취소</button>
                 <button class="btn btn-primary" onclick="createNewFolder()">만들기</button>
             </div>
-                 </div>
-     </div>
+        </div>
+    </div>
 
     <script>
         // ==================== 전역 변수 ====================
         let monaco;
         let editor;
         let socket;
-        let sessionId;
+        let sessionId = null;
         let currentFile = null;
         let selectedItem = null;
         let openTabs = new Map();
@@ -672,9 +697,17 @@
                 // 이벤트 리스너 먼저 등록
                 setupEventListeners();
                 
-                // WebSocket 연결
-                console.log('📡 WebSocket 연결 중...');
-                initializeSocket();
+                // WebSocket 연결 (지연 실행)
+                console.log('📡 WebSocket 연결 준비 중...');
+                setTimeout(() => {
+                    if (typeof io !== 'undefined') {
+                        console.log('✅ Socket.IO 확인됨, 연결 시작');
+                        connectSocket();
+                    } else {
+                        console.log('❌ Socket.IO 로드 실패');
+                        showNotification('Socket.IO 로드 실패', 'error');
+                    }
+                }, 1000); // 1초 후 실행
                 
                 // Monaco Editor 초기화 (비동기)
                 console.log('📝 Monaco Editor 로드 중...');
@@ -809,34 +842,6 @@
         }
 
         // ==================== WebSocket ====================
-        function initializeSocket() {
-            // Socket.IO 라이브러리 로드 확인
-            if (typeof io === 'undefined') {
-                console.log('⏳ Socket.IO 라이브러리 로드 대기 중...');
-                
-                // 최대 20초 대기 (더 길게)
-                let attempts = 0;
-                const maxAttempts = 200; // 20초 (100ms * 200)
-                
-                const checkInterval = setInterval(() => {
-                    attempts++;
-                    
-                    if (typeof io !== 'undefined') {
-                        clearInterval(checkInterval);
-                        console.log('✅ Socket.IO 라이브러리 로드 확인됨');
-                        connectSocket();
-                    } else if (attempts >= maxAttempts) {
-                        clearInterval(checkInterval);
-                        console.error('❌ Socket.IO 라이브러리 로드 타임아웃');
-                        showNotification('WebSocket 연결 실패 - 새로고침 해주세요', 'error');
-                    }
-                }, 100);
-                
-                return;
-            }
-            
-            connectSocket();
-        }
         
         function connectSocket() {
             try {
@@ -846,20 +851,30 @@
                 
                 socket = io({
                     transports: ['websocket', 'polling'],
-                    timeout: 10000,
+                    timeout: 20000,
                     forceNew: true,
                     autoConnect: true,
                     reconnection: true,
-                    reconnectionAttempts: 5,
-                    reconnectionDelay: 1000
+                    reconnectionAttempts: 10,
+                    reconnectionDelay: 1000,
+                    reconnectionDelayMax: 5000,
+                    maxReconnectionAttempts: 10,
+                    pingTimeout: 60000,
+                    pingInterval: 25000
                 });
                 sessionId = generateSessionId();
 
                 socket.on('connect', function() {
                     console.log('🔗 WebSocket 연결됨 (ID: ' + socket.id + ')');
                     console.log('📍 연결 URL:', window.location.origin);
+                    console.log('🔧 전송 방식:', socket.io.engine.transport.name);
                     socket.emit('join_session', { session_id: sessionId });
                     showNotification('서버에 연결되었습니다', 'success');
+                    
+                    // 업그레이드 감지
+                    socket.io.engine.on('upgrade', () => {
+                        console.log('⬆️ 전송 방식 업그레이드:', socket.io.engine.transport.name);
+                    });
                 });
 
                 socket.on('disconnect', function(reason) {
@@ -900,26 +915,31 @@
 
                 // 실행 관련 이벤트
                 socket.on('execution_started', function(data) {
+                    console.log('🚀 실행 시작 이벤트 수신:', data);
                     showBottomPanel();
                     appendToTerminal(`${data.message}\n`);
                     updateRunButtons(true);
                 });
 
                 socket.on('execution_output', function(data) {
+                    console.log('📤 실행 출력 수신:', data.output);
                     appendToTerminal(data.output);
                 });
 
                 socket.on('execution_finished', function(data) {
+                    console.log('✅ 실행 완료 이벤트 수신:', data);
                     appendToTerminal(`\n${data.message}\n`);
                     updateRunButtons(false);
                 });
 
                 socket.on('execution_stopped', function(data) {
+                    console.log('⏹️ 실행 중지 이벤트 수신:', data);
                     appendToTerminal(`\n${data.message}\n`);
                     updateRunButtons(false);
                 });
 
                 socket.on('execution_error', function(data) {
+                    console.log('❌ 실행 에러 이벤트 수신:', data);
                     appendToTerminal(`\n❌ ${data.error}\n`);
                     updateRunButtons(false);
                 });
@@ -1601,6 +1621,14 @@
                 showNotification('Python 파일만 실행할 수 있습니다', 'warning');
                 return;
             }
+            
+            // 세션 ID 확인
+            if (!sessionId) {
+                console.warn('⚠️ 세션 ID가 없음, 새로 생성');
+                sessionId = generateSessionId();
+            }
+            
+            console.log('🚀 파일 실행 시작:', currentFile, 'Session ID:', sessionId);
             
             // 파일 저장
             if (isModified) {

@@ -38,7 +38,7 @@ try:
     print("-" * 40)
     while True:
         # 정방향 회전
-        print("전진!", end="\t")
+        print("전진!")
         GPIO.output(IN1, GPIO.HIGH)
         GPIO.output(IN2, GPIO.LOW)
         pwmA.ChangeDutyCycle(SPEED)
@@ -48,13 +48,13 @@ try:
         time.sleep(1)
 
         # 정지 
-        print("정지!", end="\t")
+        print("정지!")
         pwmA.ChangeDutyCycle(0)
         pwmB.ChangeDutyCycle(0)
         time.sleep(1)
 
         # 역방향 회전
-        print("후진!", end="\t")
+        print("후진!")
         GPIO.output(IN1, GPIO.LOW)
         GPIO.output(IN2, GPIO.HIGH)
         pwmA.ChangeDutyCycle(SPEED)
@@ -64,7 +64,7 @@ try:
         time.sleep(1)
 
         # 정지
-        print("정지!", end="\n")
+        print("정지!")
         pwmA.ChangeDutyCycle(0)
         pwmB.ChangeDutyCycle(0)
         time.sleep(1)

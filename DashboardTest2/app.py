@@ -16,7 +16,16 @@ import time
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'pathfinder-web-ide-v2'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins="*",
+    async_mode='threading',
+    logger=True,
+    engineio_logger=True,
+    ping_timeout=60,
+    ping_interval=25,
+    max_http_buffer_size=10 * 1024 * 1024  # 10MB
+)
 
 # 설정
 CONFIG = {
@@ -109,9 +118,10 @@ class CodeRunner:
             if filepath in CodeRunner.running_processes:
                 CodeRunner.stop_execution(filepath)
             
-            # 새 프로세스 시작
+            # 새 프로세스 시작 (Windows 호환)
+            python_cmd = 'python' if os.name == 'nt' else 'python3'
             process = subprocess.Popen(
-                ['python3', '-u', filepath],
+                [python_cmd, '-u', filepath],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -483,5 +493,9 @@ if __name__ == '__main__':
     print(f"📁 프로젝트 디렉토리: {CONFIG['project_dir']}")
     print("🌐 브라우저에서 http://라즈베리파이IP:5000 으로 접속하세요")
     print("⚡ WebSocket 실시간 스트리밍 지원")
+    print(f"🔧 Flask-SocketIO 버전: {socketio.__version__ if hasattr(socketio, '__version__') else 'Unknown'}")
+    print(f"🔌 비동기 모드: threading")
+    print(f"🌍 CORS: 모든 도메인 허용")
+    print(f"📡 Ping 간격: 25초, 타임아웃: 60초")
     
     socketio.run(app, host='0.0.0.0', port=5000, debug=True) 
