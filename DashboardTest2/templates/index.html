@@ -625,7 +625,19 @@
 
         // ==================== 초기화 ====================
         document.addEventListener('DOMContentLoaded', function() {
-            initializeIDE();
+            console.log('📄 DOM 로드 완료');
+            // DOM이 로드된 후 약간의 지연을 두고 초기화
+            setTimeout(initializeIDE, 100);
+        });
+        
+        // 모든 리소스 로드 완료 후에도 확인
+        window.addEventListener('load', function() {
+            console.log('🌐 모든 리소스 로드 완료');
+            // 이미 초기화되지 않았다면 초기화 시도
+            if (!socket) {
+                console.log('🔄 Socket이 없음, 초기화 재시도...');
+                setTimeout(initializeIDE, 500);
+            }
         });
 
         async function initializeIDE() {
@@ -645,17 +657,17 @@
                     showNotification('에디터 로드 실패 - 기본 모드로 실행됩니다', 'warning');
                 }
                 
-                // Socket.IO 연결 (1초 후)
-                setTimeout(() => {
-                    console.log('📡 Socket.IO 연결 시도...');
-                    connectSocket();
-                }, 1000);
-                
                 // 파일 트리 로드
                 console.log('📁 파일 트리 로드 중...');
                 setTimeout(() => {
                     loadFileTree();
                 }, 500);
+                
+                // Socket.IO 연결 (더 늦게 시도)
+                setTimeout(() => {
+                    console.log('📡 Socket.IO 연결 시도...');
+                    connectSocket();
+                }, 2000);  // 2초 후에 연결 시도
                 
                 showNotification('IDE가 초기화되었습니다', 'success');
                 console.log('✅ IDE 초기화 완료');
@@ -761,6 +773,21 @@
         // ==================== WebSocket ====================
         function connectSocket() {
             try {
+                // Socket.IO 라이브러리 로드 확인
+                if (typeof io === 'undefined') {
+                    console.error('❌ Socket.IO 라이브러리가 로드되지 않았습니다');
+                    showNotification('Socket.IO 라이브러리 로드 실패', 'error');
+                    
+                    // 3초 후 재시도
+                    setTimeout(() => {
+                        console.log('🔄 Socket.IO 연결 재시도...');
+                        connectSocket();
+                    }, 3000);
+                    return;
+                }
+                
+                console.log('✅ Socket.IO 라이브러리 로드 확인됨');
+                
                 socket = io({
                     transports: ['websocket', 'polling'],
                     timeout: 20000,
@@ -878,6 +905,12 @@
             } catch (error) {
                 console.error('❌ Socket 초기화 오류:', error);
                 showNotification('WebSocket 초기화 실패: ' + error.message, 'error');
+                
+                // 5초 후 재시도
+                setTimeout(() => {
+                    console.log('🔄 Socket 연결 재시도...');
+                    connectSocket();
+                }, 5000);
             }
         }
 
