@@ -514,8 +514,10 @@
                 <button class="menu-btn" onclick="showNewFolderModal()">📁 새 폴더</button>
                 <button class="menu-btn" onclick="saveCurrentFile()" id="saveBtn" disabled>💾 저장</button>
                 <button class="menu-btn danger" onclick="deleteSelected()" id="deleteBtn" disabled>🗑️ 삭제</button>
-                <button class="menu-btn" onclick="runCurrentFile()" id="runBtn" disabled>▶️ 실행</button>
+                <button class="menu-btn" onclick="runCurrentFile()" id="runBtn" disabled>▶️ 파일 실행</button>
+                <button class="menu-btn" onclick="runRealtimeCode()" id="realtimeBtn" disabled>🔄 실시간 실행</button>
                 <button class="menu-btn danger" onclick="stopCurrentExecution()" id="stopBtn" disabled>⏹️ 중지</button>
+                <button class="menu-btn danger" onclick="stopRealtimeExecution()" id="stopRealtimeBtn" disabled>⏹️ 실시간 중지</button>
             </div>
         </div>
 
@@ -618,6 +620,8 @@
         let activeTab = null;
         let isModified = false;
         let fileTree = [];
+        let isFileRunning = false;  // 파일 실행 상태
+        let isRealtimeRunning = false;  // 실시간 실행 상태
 
         // ==================== 초기화 ====================
         document.addEventListener('DOMContentLoaded', function() {
@@ -743,6 +747,9 @@
                     updateStatusPosition(e.position.lineNumber, e.position.column);
                 });
                 
+                // 실시간 실행 버튼 활성화
+                document.getElementById('realtimeBtn').disabled = isRealtimeRunning;
+                
                 console.log('✅ Monaco Editor 생성 완료');
                 
             } catch (error) {
@@ -804,30 +811,68 @@
                 socket.on('execution_started', function(data) {
                     console.log('🚀 실행 시작:', data);
                     showBottomPanel();
-                    appendToTerminal(`${data.message}\n`);
-                    updateRunButtons(true);
+                    
+                    if (data.type === 'file') {
+                        appendToTerminal(`${data.message}\n`);
+                        updateFileRunButtons(true);
+                        isFileRunning = true;
+                    } else if (data.type === 'realtime') {
+                        appendToTerminal(`🔄 ${data.message}\n`);
+                        updateRealtimeRunButtons(true);
+                        isRealtimeRunning = true;
+                    }
                 });
 
                 socket.on('execution_output', function(data) {
-                    appendToTerminal(data.output);
+                    if (data.type === 'file') {
+                        appendToTerminal(data.output);
+                    }
+                });
+
+                socket.on('realtime_output', function(data) {
+                    appendToTerminal(`[실시간] ${data.output}\n`);
                 });
 
                 socket.on('execution_finished', function(data) {
-                    console.log('✅ 실행 완료:', data);
-                    appendToTerminal(`\n${data.message}\n`);
-                    updateRunButtons(false);
+                    console.log('✅실행 완료:', data);
+                    
+                    if (data.type === 'file') {
+                        appendToTerminal(`\n${data.message}\n`);
+                        updateFileRunButtons(false);
+                        isFileRunning = false;
+                    } else if (data.type === 'realtime') {
+                        appendToTerminal(`\n🔄 ${data.message}\n`);
+                        updateRealtimeRunButtons(false);
+                        isRealtimeRunning = false;
+                    }
                 });
 
                 socket.on('execution_stopped', function(data) {
                     console.log('⏹️ 실행 중지:', data);
-                    appendToTerminal(`\n${data.message}\n`);
-                    updateRunButtons(false);
+                    
+                    if (data.type === 'file') {
+                        appendToTerminal(`\n${data.message}\n`);
+                        updateFileRunButtons(false);
+                        isFileRunning = false;
+                    } else if (data.type === 'realtime') {
+                        appendToTerminal(`\n🔄 ${data.message}\n`);
+                        updateRealtimeRunButtons(false);
+                        isRealtimeRunning = false;
+                    }
                 });
 
                 socket.on('execution_error', function(data) {
                     console.log('❌ 실행 에러:', data);
-                    appendToTerminal(`\n❌ ${data.error}\n`);
-                    updateRunButtons(false);
+                    
+                    if (data.type === 'file') {
+                        appendToTerminal(`\n❌ ${data.error}\n`);
+                        updateFileRunButtons(false);
+                        isFileRunning = false;
+                    } else if (data.type === 'realtime') {
+                        appendToTerminal(`\n❌ [실시간] ${data.error}\n`);
+                        updateRealtimeRunButtons(false);
+                        isRealtimeRunning = false;
+                    }
                 });
                 
             } catch (error) {
@@ -1165,7 +1210,8 @@
             renderTabs();
             
             // 실행 버튼 상태 업데이트
-            document.getElementById('runBtn').disabled = !filepath.endsWith('.py');
+            document.getElementById('runBtn').disabled = !filepath.endsWith('.py') || isFileRunning;
+            document.getElementById('realtimeBtn').disabled = !editor || isRealtimeRunning;
         }
 
         function closeTab(event, filepath) {
@@ -1225,6 +1271,7 @@
             updateLanguage('-');
             
             document.getElementById('runBtn').disabled = true;
+            document.getElementById('realtimeBtn').disabled = true;
             document.getElementById('saveBtn').disabled = true;
         }
 
@@ -1534,13 +1581,36 @@
                 
                 if (result.success) {
                     clearTerminal();
-                    showNotification('코드 실행을 시작했습니다', 'info');
+                    showNotification('파일 실행을 시작했습니다', 'info');
                 } else {
                     throw new Error(result.error);
                 }
             } catch (error) {
                 console.error('실행 오류:', error);
                 showNotification(`실행 실패: ${error.message}`, 'error');
+            }
+        }
+
+        async function runRealtimeCode() {
+            if (!editor) {
+                showNotification('에디터가 로드되지 않았습니다', 'warning');
+                return;
+            }
+            
+            const code = editor.getValue();
+            if (!code.trim()) {
+                showNotification('실행할 코드가 없습니다', 'warning');
+                return;
+            }
+            
+            console.log('🔄 실시간 코드 실행 시작:', code.length, '문자');
+            
+            if (socket && socket.connected) {
+                clearTerminal();
+                socket.emit('execute_realtime', { code: code });
+                showNotification('실시간 실행을 시작했습니다', 'info');
+            } else {
+                showNotification('서버에 연결되지 않았습니다', 'error');
             }
         }
 
@@ -1557,7 +1627,7 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showNotification('실행이 중지되었습니다', 'info');
+                    showNotification('파일 실행이 중지되었습니다', 'info');
                 } else {
                     showNotification('중지할 프로세스가 없습니다', 'warning');
                 }
@@ -1567,9 +1637,30 @@
             }
         }
 
-        function updateRunButtons(isRunning) {
+        function stopRealtimeExecution() {
+            if (socket && socket.connected) {
+                socket.emit('stop_realtime_execution');
+                showNotification('실시간 실행을 중지했습니다', 'info');
+            } else {
+                showNotification('서버에 연결되지 않았습니다', 'error');
+            }
+        }
+
+        function updateFileRunButtons(isRunning) {
+            isFileRunning = isRunning;
             document.getElementById('runBtn').disabled = isRunning || !currentFile || !currentFile.endsWith('.py');
             document.getElementById('stopBtn').disabled = !isRunning;
+        }
+
+        function updateRealtimeRunButtons(isRunning) {
+            isRealtimeRunning = isRunning;
+            document.getElementById('realtimeBtn').disabled = isRunning || !editor;
+            document.getElementById('stopRealtimeBtn').disabled = !isRunning;
+        }
+
+        function updateRunButtons(isRunning) {
+            // 호환성을 위해 유지 (기존 코드에서 사용)
+            updateFileRunButtons(isRunning);
         }
 
         // ==================== 터미널 ====================

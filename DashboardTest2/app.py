@@ -8,7 +8,12 @@ Pathfinder Web IDE v2 - Flask-SocketIO 기반 실시간 웹 IDE
 - WebSocket 기반 실시간 코드 실행
 - 파일/폴더 관리
 - 터미널 출력 스트리밍
+- 무한루프 코드 실시간 실행 및 제어 지원
 """
+
+# eventlet으로 WebSocket 완전 지원
+import eventlet
+eventlet.monkey_patch()
 
 from flask import Flask, request, render_template, jsonify
 from flask_socketio import SocketIO, emit, join_room
@@ -21,6 +26,9 @@ import threading
 import time
 import secrets
 import logging
+import sys
+import io
+import tempfile
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -29,16 +37,21 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config['SECRET_KEY'] = secrets.token_hex(32)
 
-# Flask-SocketIO 설정 (보안 강화)
+# Flask-SocketIO 설정 (WebSocket 완전 지원)
 socketio = SocketIO(
     app, 
     cors_allowed_origins="*",
-    async_mode='threading',
-    logger=False,  # 프로덕션에서는 False
-    engineio_logger=False,  # 프로덕션에서는 False
+    async_mode='eventlet',  # eventlet으로 WebSocket 완전 지원
+    logger=False,
+    engineio_logger=False,
     ping_timeout=60,
     ping_interval=25,
-    max_http_buffer_size=10 * 1024 * 1024  # 10MB
+    # WebSocket 우선 설정
+    transports=['websocket', 'polling'],  # WebSocket 우선
+    allow_upgrades=True,  # WebSocket 업그레이드 허용
+    # WebSocket 최적화
+    websocket_timeout=60,
+    max_http_buffer_size=1024 * 1024  # 1MB 버퍼
 )
 
 # 전역 설정
@@ -49,6 +62,139 @@ CONFIG = {
     'allowed_extensions': {'.py', '.txt', '.md', '.json', '.html', '.css', '.js', '.sh', '.cfg', '.yml', '.yaml', '.xml'},
     'max_execution_time': 300  # 5분
 }
+
+# 전역 변수
+running_processes = {}  # 파일 기반 실행 중인 프로세스들
+realtime_processes = {}  # 실시간 실행 중인 프로세스들
+
+class RealTimeExecutor:
+    """실시간 코드 실행 관리 클래스 (flask_socketio_fixed.py에서 가져옴)"""
+    
+    def __init__(self, session_id):
+        self.session_id = session_id
+        self.process = None
+        self.is_running = False
+        self.temp_file = None
+        
+    def execute_code(self, code):
+        """코드를 별도 프로세스에서 실시간 실행"""
+        try:
+            # 임시 파일 생성
+            self.temp_file = tempfile.NamedTemporaryFile(
+                mode='w', 
+                suffix='.py', 
+                delete=False,
+                encoding='utf-8'
+            )
+            self.temp_file.write(code)
+            self.temp_file.close()
+            
+            # Python 프로세스 시작
+            python_cmd = 'python' if os.name == 'nt' else 'python3'
+            self.process = subprocess.Popen(
+                [python_cmd, '-u', self.temp_file.name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=0,  # 실시간 출력을 위해 버퍼링 비활성화
+                universal_newlines=True
+            )
+            
+            self.is_running = True
+            
+            # 실시간 출력 모니터링 스레드 시작
+            monitor_thread = threading.Thread(
+                target=self._monitor_output,
+                daemon=True
+            )
+            monitor_thread.start()
+            
+            return True
+            
+        except Exception as e:
+            socketio.emit('execution_error', {
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }, room=self.session_id)
+            return False
+    
+    def _monitor_output(self):
+        """프로세스 출력을 실시간으로 모니터링"""
+        try:
+            while self.is_running and self.process and self.process.poll() is None:
+                try:
+                    # 실시간 출력 읽기
+                    line = self.process.stdout.readline()
+                    if line:
+                        socketio.emit('realtime_output', {
+                            'output': line.rstrip('\n\r'),
+                            'timestamp': datetime.now().isoformat()
+                        }, room=self.session_id)
+                    else:
+                        time.sleep(0.01)  # CPU 사용량 조절
+                        
+                except Exception as e:
+                    socketio.emit('execution_error', {
+                        'error': f'출력 읽기 오류: {str(e)}',
+                        'timestamp': datetime.now().isoformat()
+                    }, room=self.session_id)
+                    break
+            
+            # 프로세스 종료 처리
+            if self.process:
+                exit_code = self.process.poll()
+                if exit_code is not None:
+                    socketio.emit('execution_finished', {
+                        'exit_code': exit_code,
+                        'message': f'프로세스 종료됨 (코드: {exit_code})',
+                        'timestamp': datetime.now().isoformat()
+                    }, room=self.session_id)
+                    
+        except Exception as e:
+            socketio.emit('execution_error', {
+                'error': f'모니터링 오류: {str(e)}',
+                'timestamp': datetime.now().isoformat()
+            }, room=self.session_id)
+        finally:
+            self.cleanup()
+    
+    def stop_execution(self):
+        """실행 중지"""
+        try:
+            self.is_running = False
+            
+            if self.process and self.process.poll() is None:
+                # 프로세스 종료 시도
+                self.process.terminate()
+                
+                # 3초 대기 후 강제 종료
+                try:
+                    self.process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
+                
+                socketio.emit('execution_stopped', {
+                    'message': '실행이 중지되었습니다',
+                    'timestamp': datetime.now().isoformat()
+                }, room=self.session_id)
+                
+            return True
+            
+        except Exception as e:
+            socketio.emit('execution_error', {
+                'error': f'중지 오류: {str(e)}',
+                'timestamp': datetime.now().isoformat()
+            }, room=self.session_id)
+            return False
+    
+    def cleanup(self):
+        """리소스 정리"""
+        try:
+            if self.temp_file and os.path.exists(self.temp_file.name):
+                os.unlink(self.temp_file.name)
+        except:
+            pass
 
 class FileManager:
     """파일 시스템 관리 클래스 - 보안 강화"""
@@ -132,15 +278,12 @@ class FileManager:
 class CodeRunner:
     """WebSocket 기반 코드 실행 관리 클래스 - 보안 및 안정성 강화"""
     
-    running_processes = {}  # 실행 중인 프로세스 저장
-    process_threads = {}    # 출력 모니터링 스레드 저장
-    
     @staticmethod
     def start_execution(filepath, session_id):
-        """Python 파일 WebSocket 스트리밍 실행"""
+        """Python 파일 WebSocket 스트리밍 실행 (파일 기반)"""
         try:
             # 기존 프로세스가 있으면 종료
-            if filepath in CodeRunner.running_processes:
+            if filepath in running_processes:
                 CodeRunner.stop_execution(filepath)
             
             # 파일 존재 및 확장자 확인
@@ -172,10 +315,11 @@ class CodeRunner:
                 }
             )
             
-            CodeRunner.running_processes[filepath] = {
+            running_processes[filepath] = {
                 'process': process,
                 'session_id': session_id,
-                'start_time': time.time()
+                'start_time': time.time(),
+                'type': 'file'  # 파일 기반 실행 표시
             }
             
             # 출력 모니터링 스레드 시작
@@ -185,16 +329,16 @@ class CodeRunner:
                 daemon=True
             )
             monitor_thread.start()
-            CodeRunner.process_threads[filepath] = monitor_thread
             
             # 시작 메시지 전송
             socketio.emit('execution_started', {
                 'filepath': filepath,
                 'pid': process.pid,
-                'message': f'🚀 프로세스 시작됨 (PID: {process.pid})'
+                'message': f'🚀 프로세스 시작됨 (PID: {process.pid})',
+                'type': 'file'
             }, room=session_id)
             
-            logger.info(f"코드 실행 시작: {filepath} (PID: {process.pid})")
+            logger.info(f"파일 실행 시작: {filepath} (PID: {process.pid})")
             return {'success': True, 'pid': process.pid}
             
         except Exception as e:
@@ -203,7 +347,8 @@ class CodeRunner:
             
             socketio.emit('execution_error', {
                 'filepath': filepath,
-                'error': error_msg
+                'error': error_msg,
+                'type': 'file'
             }, room=session_id)
             
             return {'success': False, 'error': str(e)}
@@ -221,7 +366,8 @@ class CodeRunner:
                     process.terminate()
                     socketio.emit('execution_error', {
                         'filepath': filepath,
-                        'error': f'❌ 실행 시간 초과 ({CONFIG["max_execution_time"]}초)'
+                        'error': f'❌ 실행 시간 초과 ({CONFIG["max_execution_time"]}초)',
+                        'type': 'file'
                     }, room=session_id)
                     break
                 
@@ -233,7 +379,8 @@ class CodeRunner:
                         if remaining:
                             socketio.emit('execution_output', {
                                 'filepath': filepath,
-                                'output': remaining
+                                'output': remaining,
+                                'type': 'file'
                             }, room=session_id)
                     except:
                         pass
@@ -242,10 +389,11 @@ class CodeRunner:
                     socketio.emit('execution_finished', {
                         'filepath': filepath,
                         'exit_code': process.returncode,
-                        'message': f'✅ 프로세스 종료됨 (종료 코드: {process.returncode})'
+                        'message': f'✅ 프로세스 종료됨 (종료 코드: {process.returncode})',
+                        'type': 'file'
                     }, room=session_id)
                     
-                    logger.info(f"코드 실행 완료: {filepath} (종료 코드: {process.returncode})")
+                    logger.info(f"파일 실행 완료: {filepath} (종료 코드: {process.returncode})")
                     break
                 
                 # 새로운 출력 읽기
@@ -254,7 +402,8 @@ class CodeRunner:
                     if line:
                         socketio.emit('execution_output', {
                             'filepath': filepath,
-                            'output': line
+                            'output': line,
+                            'type': 'file'
                         }, room=session_id)
                     else:
                         time.sleep(0.01)  # 10ms 대기
@@ -263,7 +412,8 @@ class CodeRunner:
                     logger.error(f"출력 읽기 오류: {e}")
                     socketio.emit('execution_error', {
                         'filepath': filepath,
-                        'error': f'❌ 출력 읽기 오류: {str(e)}'
+                        'error': f'❌ 출력 읽기 오류: {str(e)}',
+                        'type': 'file'
                     }, room=session_id)
                     break
                     
@@ -271,21 +421,20 @@ class CodeRunner:
             logger.error(f"모니터링 오류: {e}")
             socketio.emit('execution_error', {
                 'filepath': filepath,
-                'error': f'❌ 모니터링 오류: {str(e)}'
+                'error': f'❌ 모니터링 오류: {str(e)}',
+                'type': 'file'
             }, room=session_id)
         finally:
             # 정리
-            if filepath in CodeRunner.running_processes:
-                del CodeRunner.running_processes[filepath]
-            if filepath in CodeRunner.process_threads:
-                del CodeRunner.process_threads[filepath]
+            if filepath in running_processes:
+                del running_processes[filepath]
     
     @staticmethod
     def stop_execution(filepath):
-        """실행 중지 - 강제 종료 개선"""
+        """파일 실행 중지 - 강제 종료 개선"""
         try:
-            if filepath in CodeRunner.running_processes:
-                process_info = CodeRunner.running_processes[filepath]
+            if filepath in running_processes:
+                process_info = running_processes[filepath]
                 process = process_info['process']
                 session_id = process_info['session_id']
                 
@@ -301,15 +450,14 @@ class CodeRunner:
                 # 중지 메시지 전송
                 socketio.emit('execution_stopped', {
                     'filepath': filepath,
-                    'message': '⏹️ 실행이 중지되었습니다'
+                    'message': '⏹️ 실행이 중지되었습니다',
+                    'type': 'file'
                 }, room=session_id)
                 
-                logger.info(f"코드 실행 중지: {filepath}")
+                logger.info(f"파일 실행 중지: {filepath}")
                 
                 # 정리
-                del CodeRunner.running_processes[filepath]
-                if filepath in CodeRunner.process_threads:
-                    del CodeRunner.process_threads[filepath]
+                del running_processes[filepath]
                 
                 return {'success': True}
             else:
@@ -579,14 +727,19 @@ def handle_disconnect():
     """클라이언트 연결 해제"""
     logger.info(f"클라이언트 연결 해제: {request.sid}")
     
-    # 해당 세션의 실행 중인 프로세스들 정리
+    # 해당 세션의 파일 기반 실행 중인 프로세스들 정리
     processes_to_stop = []
-    for filepath, process_info in CodeRunner.running_processes.items():
+    for filepath, process_info in running_processes.items():
         if process_info['session_id'] == request.sid:
             processes_to_stop.append(filepath)
     
     for filepath in processes_to_stop:
         CodeRunner.stop_execution(filepath)
+    
+    # 해당 세션의 실시간 실행 중인 프로세스들 정리
+    if request.sid in realtime_processes:
+        realtime_processes[request.sid].stop_execution()
+        del realtime_processes[request.sid]
 
 @socketio.on('join_session')
 def handle_join_session(data):
@@ -595,6 +748,118 @@ def handle_join_session(data):
     join_room(session_id)
     emit('session_joined', {'session_id': session_id})
     logger.info(f"세션 참가: {session_id}")
+
+# ==================== 실시간 코드 실행 이벤트 핸들러 ====================
+
+@socketio.on('execute_realtime')
+def handle_execute_realtime(data):
+    """실시간 코드 실행 (임시 파일 기반)"""
+    session_id = request.sid
+    code = data.get('code', '')
+    
+    logger.info(f"📝 실시간 코드 실행 요청: {len(code)} 문자 (세션: {session_id})")
+    
+    # 기존 실행 중인 프로세스가 있으면 중지
+    if session_id in realtime_processes:
+        realtime_processes[session_id].stop_execution()
+        del realtime_processes[session_id]
+    
+    # 새 실행기 생성
+    executor = RealTimeExecutor(session_id)
+    realtime_processes[session_id] = executor
+    
+    emit('execution_started', {
+        'message': '실시간 실행 시작...',
+        'timestamp': datetime.now().isoformat(),
+        'type': 'realtime'
+    })
+    
+    # 코드 실행
+    success = executor.execute_code(code)
+    if not success:
+        if session_id in realtime_processes:
+            del realtime_processes[session_id]
+
+@socketio.on('stop_realtime_execution')
+def handle_stop_realtime_execution():
+    """실시간 실행 중지"""
+    session_id = request.sid
+    
+    if session_id in realtime_processes:
+        success = realtime_processes[session_id].stop_execution()
+        if success:
+            del realtime_processes[session_id]
+        return success
+    else:
+        emit('execution_error', {
+            'error': '실행 중인 프로세스가 없습니다',
+            'timestamp': datetime.now().isoformat(),
+            'type': 'realtime'
+        })
+        return False
+
+@socketio.on('execute_code')
+def handle_execute_code(data):
+    """일반 코드 실행 (기존 기능 유지 - 메모리 내 실행)"""
+    code = data.get('code', '')
+    logger.info(f"📝 일반 코드 실행 요청: {len(code)} 문자")
+    
+    emit('execution_start', {
+        'message': '코드 실행 중...',
+        'timestamp': datetime.now().isoformat(),
+        'type': 'memory'
+    })
+    
+    try:
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        
+        sys.stdout = stdout_capture
+        sys.stderr = stderr_capture
+        
+        exec_globals = {'__name__': '__main__'}
+        exec(code, exec_globals)
+        
+        stdout_result = stdout_capture.getvalue()
+        stderr_result = stderr_capture.getvalue()
+        
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+        
+        emit('execution_result', {
+            'success': True,
+            'stdout': stdout_result,
+            'stderr': stderr_result,
+            'timestamp': datetime.now().isoformat(),
+            'type': 'memory'
+        })
+        
+        logger.info(f"✅ 일반 코드 실행 성공")
+        
+    except Exception as e:
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+        
+        emit('execution_result', {
+            'success': False,
+            'error': str(e),
+            'error_type': type(e).__name__,
+            'timestamp': datetime.now().isoformat(),
+            'type': 'memory'
+        })
+        
+        logger.error(f"❌ 일반 코드 실행 오류: {e}")
+
+@socketio.on('ping')
+def handle_ping():
+    """핑 테스트"""
+    emit('pong', {
+        'timestamp': datetime.now().isoformat(),
+        'server_time': datetime.now().strftime('%H:%M:%S')
+    })
 
 # ==================== 에러 핸들러 ====================
 
@@ -612,9 +877,17 @@ if __name__ == '__main__':
     print(f"📁 프로젝트 디렉토리: {CONFIG['project_dir']}")
     print("🌐 브라우저에서 http://라즈베리파이IP:5000 으로 접속하세요")
     print("⚡ WebSocket 실시간 스트리밍 지원")
-    print(f"🔧 비동기 모드: threading")
+    print("🔄 무한루프 코드 실시간 실행 및 제어 지원")
+    print(f"🔧 비동기 모드: eventlet")
     print(f"🌍 CORS: 모든 도메인 허용")
     print(f"📡 Ping 간격: 25초, 타임아웃: 60초")
     print(f"🔒 보안: 경로 검증, 파일 크기 제한, 실행 시간 제한")
+    print("-" * 60)
     
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)  # 프로덕션에서는 debug=False 
+    socketio.run(
+        app, 
+        host='0.0.0.0', 
+        port=5000, 
+        debug=False,  # eventlet에서는 debug=False 권장
+        use_reloader=False  # eventlet에서는 reloader 비활성화
+    ) 
