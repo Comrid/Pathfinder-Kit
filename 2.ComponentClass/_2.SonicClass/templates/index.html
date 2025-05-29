@@ -552,6 +552,25 @@
             lastUpdateTime = currentTime;
         });
         
+        socket.on('distance_update', function(data) {
+            console.log('🎯 거리 업데이트 이벤트:', data.value, 'cm');
+            
+            // 간단한 거리 값만 업데이트
+            if (data.value !== null && data.value !== undefined) {
+                distanceValue.innerHTML = `${data.value}<span class="distance-unit">cm</span>`;
+                
+                // 거리 바 업데이트
+                const percentage = Math.min((data.value / 400) * 100, 100);
+                distanceFill.style.width = `${percentage}%`;
+                
+                // 시각적 효과
+                distanceValue.style.transform = 'scale(1.1)';
+                setTimeout(() => {
+                    distanceValue.style.transform = 'scale(1)';
+                }, 200);
+            }
+        });
+        
         socket.on('debug_message', function(data) {
             addDebugMessage('🐛 ' + data.message);
             console.log('🐛 서버 디버그:', data.message);
@@ -574,43 +593,74 @@
             
             try {
                 if (distance !== null && distance !== undefined) {
-                    // 거리 값 업데이트
-                    distanceValue.innerHTML = `${distance}<span class="distance-unit">cm</span>`;
-                    distanceStatus.textContent = `마지막 측정: ${timestamp}`;
+                    // 거리 값 업데이트 - 강제 DOM 조작
+                    const newDistanceHTML = `${distance}<span class="distance-unit">cm</span>`;
+                    distanceValue.innerHTML = newDistanceHTML;
+                    
+                    // 상태 텍스트 업데이트
+                    let statusText = `마지막 측정: ${timestamp}`;
                     
                     // 거리 바 업데이트 (0-400cm 범위)
                     const percentage = Math.min((distance / 400) * 100, 100);
                     distanceFill.style.width = `${percentage}%`;
                     
-                    // 거리에 따른 상태 메시지
+                    // 거리에 따른 상태 메시지와 색상
                     if (distance < 10) {
-                        distanceStatus.textContent += ' - 매우 가까움 ⚠️';
-                        distanceFill.style.backgroundColor = '#ef4444';
+                        statusText += ' - 매우 가까움 ⚠️';
+                        distanceFill.style.background = '#ef4444';
+                        distanceValue.style.color = '#ef4444';
                     } else if (distance < 50) {
-                        distanceStatus.textContent += ' - 가까움';
-                        distanceFill.style.backgroundColor = '#f59e0b';
+                        statusText += ' - 가까움';
+                        distanceFill.style.background = '#f59e0b';
+                        distanceValue.style.color = '#f59e0b';
                     } else if (distance < 200) {
-                        distanceStatus.textContent += ' - 보통';
-                        distanceFill.style.backgroundColor = '#10b981';
+                        statusText += ' - 보통';
+                        distanceFill.style.background = '#10b981';
+                        distanceValue.style.color = '#3b82f6';
                     } else {
-                        distanceStatus.textContent += ' - 멀음';
-                        distanceFill.style.backgroundColor = '#3b82f6';
+                        statusText += ' - 멀음';
+                        distanceFill.style.background = '#3b82f6';
+                        distanceValue.style.color = '#3b82f6';
                     }
+                    
+                    // 상태 텍스트 설정
+                    distanceStatus.textContent = statusText;
+                    
+                    // 강제 DOM 리플로우
+                    distanceValue.offsetHeight;
+                    distanceFill.offsetWidth;
                     
                     // 시각적 효과 추가
                     distanceValue.style.transform = 'scale(1.05)';
+                    distanceValue.style.transition = 'all 0.1s ease';
+                    
                     setTimeout(() => {
                         distanceValue.style.transform = 'scale(1)';
                     }, 100);
+                    
+                    // 페이지 제목도 업데이트
+                    document.title = `📡 ${distance}cm - Pathfinder Sensor`;
                     
                 } else {
                     distanceValue.innerHTML = `--.-<span class="distance-unit">cm</span>`;
                     distanceStatus.textContent = '측정 실패';
                     distanceFill.style.width = '0%';
-                    distanceFill.style.backgroundColor = '#64748b';
+                    distanceFill.style.background = '#64748b';
+                    distanceValue.style.color = '#64748b';
+                    document.title = '📡 측정 실패 - Pathfinder Sensor';
                 }
+                
+                // 강제 화면 업데이트
+                if (typeof requestAnimationFrame !== 'undefined') {
+                    requestAnimationFrame(() => {
+                        // 다음 프레임에서 한 번 더 확인
+                        console.log('🔄 화면 업데이트 완료:', distanceValue.textContent);
+                    });
+                }
+                
             } catch (error) {
                 console.error('거리 표시 업데이트 오류:', error);
+                addDebugMessage('❌ 거리 표시 오류: ' + error.message);
             }
         }
         
@@ -707,11 +757,29 @@
         // 버튼 이벤트 리스너
         startBtn.addEventListener('click', function() {
             console.log('측정 시작 버튼 클릭, 연결 상태:', isConnected, '측정 중:', isMeasuring);
+            
             if (isConnected && !isMeasuring) {
+                // 즉시 UI 업데이트
+                this.disabled = true;
+                this.textContent = '🚀 시작 중...';
+                this.style.backgroundColor = '#64748b';
+                
                 addDebugMessage('📤 측정 시작 요청 전송 중...');
                 socket.emit('start_measurement');
+                
+                // 2초 후에도 상태가 안 바뀌면 강제 업데이트
+                setTimeout(() => {
+                    if (!isMeasuring) {
+                        console.warn('⚠️ 측정 시작 응답 지연, 상태 재요청');
+                        socket.emit('get_status');
+                    }
+                }, 2000);
+                
             } else if (!isConnected) {
                 addDebugMessage('❌ 서버에 연결되지 않음');
+                // 재연결 시도
+                console.log('🔄 재연결 시도...');
+                socket.connect();
             } else if (isMeasuring) {
                 addDebugMessage('⚠️ 이미 측정 중');
             }
@@ -719,9 +787,23 @@
         
         stopBtn.addEventListener('click', function() {
             console.log('측정 중지 버튼 클릭, 연결 상태:', isConnected, '측정 중:', isMeasuring);
+            
             if (isConnected && isMeasuring) {
+                // 즉시 UI 업데이트
+                this.disabled = true;
+                this.textContent = '⏹️ 중지 중...';
+                
                 addDebugMessage('📤 측정 중지 요청 전송 중...');
                 socket.emit('stop_measurement');
+                
+                // 2초 후에도 상태가 안 바뀌면 강제 업데이트
+                setTimeout(() => {
+                    if (isMeasuring) {
+                        console.warn('⚠️ 측정 중지 응답 지연, 상태 재요청');
+                        socket.emit('get_status');
+                    }
+                }, 2000);
+                
             } else if (!isConnected) {
                 addDebugMessage('❌ 서버에 연결되지 않음');
             } else if (!isMeasuring) {
@@ -734,12 +816,15 @@
             if (isConnected && !this.disabled) {
                 this.disabled = true;
                 this.textContent = '🔧 테스트 중...';
+                this.style.backgroundColor = '#64748b';
+                
                 addDebugMessage('📤 센서 테스트 요청 전송 중...');
                 socket.emit('test_sensor');
                 
                 setTimeout(() => {
                     this.disabled = false;
                     this.textContent = '🔧 센서 테스트';
+                    this.style.backgroundColor = '#3b82f6';
                 }, 3000);
             } else if (!isConnected) {
                 addDebugMessage('❌ 서버에 연결되지 않음');
@@ -749,8 +834,18 @@
         clearBtn.addEventListener('click', function() {
             console.log('데이터 초기화 버튼 클릭');
             if (isConnected && confirm('모든 측정 데이터를 삭제하시겠습니까?')) {
+                this.disabled = true;
+                this.textContent = '🧹 초기화 중...';
+                this.style.backgroundColor = '#64748b';
+                
                 addDebugMessage('📤 데이터 초기화 요청 전송 중...');
                 socket.emit('clear_data');
+                
+                setTimeout(() => {
+                    this.disabled = false;
+                    this.textContent = '🧹 데이터 초기화';
+                    this.style.backgroundColor = '#f59e0b';
+                }, 1000);
             } else if (!isConnected) {
                 addDebugMessage('❌ 서버에 연결되지 않음');
             }
@@ -768,6 +863,16 @@
                 socket.emit('stop_measurement');
             }
         });
+        
+        // 연결 상태 모니터링
+        setInterval(function() {
+            if (!socket.connected) {
+                console.warn('⚠️ WebSocket 연결 끊김 감지');
+                isConnected = false;
+                connectionStatus.textContent = '🔴 연결 끊김';
+                connectionStatus.className = 'connection-status disconnected';
+            }
+        }, 1000);
     </script>
 </body>
 </html>

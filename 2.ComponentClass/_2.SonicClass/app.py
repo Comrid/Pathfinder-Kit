@@ -161,15 +161,25 @@ def measurement_worker():
             # 통계 업데이트
             update_statistics(distance)
             
-            # 클라이언트에 실시간 데이터 전송
+            # 모든 클라이언트에게 실시간 데이터 브로드캐스트
             try:
-                socketio.emit('measurement_data', {
+                data_to_send = {
                     'distance': distance,
                     'timestamp': timestamp,
                     'stats': stats.copy(),
                     'chart_data': list(measurement_data)[-20:]  # 최근 20개 데이터
-                })
-                print(f"📤 데이터 전송 완료: {distance} cm")
+                }
+                
+                # 브로드캐스트로 모든 클라이언트에게 전송
+                socketio.emit('measurement_data', data_to_send, broadcast=True)
+                print(f"📤 데이터 브로드캐스트 완료: {distance} cm")
+                
+                # 추가로 개별 이벤트도 전송
+                socketio.emit('distance_update', {
+                    'value': distance,
+                    'timestamp': timestamp
+                }, broadcast=True)
+                
             except Exception as emit_error:
                 print(f"❌ 데이터 전송 오류: {emit_error}")
             
@@ -179,7 +189,7 @@ def measurement_worker():
         except Exception as e:
             print(f"❌ 측정 스레드 오류: {e}")
             try:
-                socketio.emit('error_message', {'message': f'측정 오류: {str(e)}'})
+                socketio.emit('error_message', {'message': f'측정 오류: {str(e)}'}, broadcast=True)
             except:
                 pass
             time.sleep(1)
