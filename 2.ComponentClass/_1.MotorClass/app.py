@@ -1,10 +1,19 @@
-from flask import Flask, render_template, jsonify, request
+#!/usr/bin/env python3
+"""
+Pathfinder Motor Control with Flask-SocketIO
+실시간 모터 제어를 위한 WebSocket 기반 통합 시스템
+"""
+
+from flask import Flask, render_template, request
+from flask_socketio import SocketIO, emit
 import RPi.GPIO as GPIO
 import time
 import threading
 import atexit
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'pathfinder-motor-control'
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # 전역 변수 - 모터 상태 관리
 current_command = "stop"
@@ -17,7 +26,7 @@ GPIO.setwarnings(False)
 GPIO.cleanup()
 GPIO.setmode(GPIO.BCM)
 
-# 모터 드라이버 핀 설정 (사용자 제공 핀 번호)
+# 모터 드라이버 핀 설정
 IN1 = 23  # 오른쪽 모터 방향 1
 IN2 = 24  # 오른쪽 모터 방향 2
 IN3 = 22  # 왼쪽 모터 방향 1
@@ -34,34 +43,41 @@ GPIO.setup(ENA, GPIO.OUT)
 GPIO.setup(ENB, GPIO.OUT)
 
 # PWM 설정
-pwm_right = GPIO.PWM(ENA, 1000)  # 오른쪽 모터 PWM (ENA = GPIO 12)
-pwm_left = GPIO.PWM(ENB, 1000)   # 왼쪽 모터 PWM (ENB = GPIO 13)
+pwm_right = GPIO.PWM(ENA, 1000)
+pwm_left = GPIO.PWM(ENB, 1000)
 pwm_right.start(0)
 pwm_left.start(0)
 
-# 모터 속도 설정 (0-100)
+# 모터 속도 설정
 MOTOR_SPEED_NORMAL = 100
 MOTOR_SPEED_TURN = 80
 MOTOR_SPEED_DIAGONAL = 60
 
-# 디버그 모드
 DEBUG = True
 
 def debug_print(message):
     if DEBUG:
         print(f"[DEBUG] {message}")
+        # WebSocket으로 디버그 메시지 전송
+        socketio.emit('debug_message', {'message': message})
 
 def stop_motors():
     debug_print("모터 정지")
-    GPIO.output(IN1, GPIO.LOW)
-    GPIO.output(IN2, GPIO.LOW)
-    GPIO.output(IN3, GPIO.LOW)
-    GPIO.output(IN4, GPIO.LOW)
-    pwm_right.ChangeDutyCycle(0)
-    pwm_left.ChangeDutyCycle(0)
+    try:
+        GPIO.output(IN1, GPIO.LOW)
+        GPIO.output(IN2, GPIO.LOW)
+        GPIO.output(IN3, GPIO.LOW)
+        GPIO.output(IN4, GPIO.LOW)
+        pwm_right.ChangeDutyCycle(0)
+        pwm_left.ChangeDutyCycle(0)
+    except RuntimeError as e:
+        # GPIO가 이미 정리된 경우 무시
+        if "pin numbering mode" in str(e):
+            print("⚠️ GPIO 이미 정리됨 - 모터 정지 건너뜀")
+        else:
+            raise e
 
 def set_motor_direction(right_forward, left_forward):
-    # 오른쪽 모터 방향 설정
     if right_forward:
         GPIO.output(IN1, GPIO.HIGH)
         GPIO.output(IN2, GPIO.LOW)
@@ -69,7 +85,6 @@ def set_motor_direction(right_forward, left_forward):
         GPIO.output(IN1, GPIO.LOW)
         GPIO.output(IN2, GPIO.HIGH)
     
-    # 왼쪽 모터 방향 설정
     if left_forward:
         GPIO.output(IN3, GPIO.HIGH)
         GPIO.output(IN4, GPIO.LOW)
@@ -81,7 +96,7 @@ def set_motor_speed(right_speed, left_speed):
     pwm_right.ChangeDutyCycle(right_speed)
     pwm_left.ChangeDutyCycle(left_speed)
 
-# 모터 제어 함수
+# 모터 제어 함수들
 def move_forward(speed=MOTOR_SPEED_NORMAL):
     set_motor_direction(True, True)
     set_motor_speed(speed, speed)
@@ -117,6 +132,7 @@ def move_backward_right(speed=MOTOR_SPEED_NORMAL):
 def test_motors():
     """모터 테스트 함수"""
     debug_print("모터 테스트 시작")
+    socketio.emit('motor_test_status', {'status': 'testing', 'message': '모터 테스트 중...'})
     
     # 오른쪽 모터 테스트
     debug_print("오른쪽 모터 전진 테스트")
@@ -136,8 +152,9 @@ def test_motors():
     
     debug_print("모터 테스트 완료")
     stop_motors()
+    socketio.emit('motor_test_status', {'status': 'completed', 'message': '모터 테스트 완료'})
 
-# 모터 제어 스레드 함수
+# 모터 제어 스레드
 def motor_control_thread():
     last_command = "stop"
     last_speed = 100
@@ -147,9 +164,15 @@ def motor_control_thread():
             cmd = current_command
             spd = motor_speed
         
-        # 명령이 변경되었거나 속도가 변경된 경우에만 모터 제어
         if cmd != last_command or spd != last_speed:
             debug_print(f"명령 실행: {cmd}, 속도: {spd}")
+            
+            # 실시간 상태 업데이트
+            socketio.emit('motor_status', {
+                'command': cmd,
+                'speed': spd,
+                'timestamp': time.time()
+            })
             
             if cmd == "forward":
                 move_forward(spd)
@@ -173,7 +196,6 @@ def motor_control_thread():
             last_command = cmd
             last_speed = spd
         
-        # 짧은 대기 시간으로 CPU 사용량 감소
         time.sleep(0.01)
 
 # Flask 라우트
@@ -181,47 +203,67 @@ def motor_control_thread():
 def index():
     return render_template('index.html')
 
-@app.route('/test-motors', methods=['POST'])
-def test_motors_route():
-    test_motors()
-    return jsonify({"status": "success", "message": "모터 테스트 완료"})
+# SocketIO 이벤트 핸들러
+@socketio.on('connect')
+def handle_connect():
+    print(f"🔗 클라이언트 연결: {request.sid}")
+    emit('debug_message', {'message': '클라이언트 연결됨'})
 
-@app.route('/command', methods=['POST'])
-def command():
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f"🔌 클라이언트 연결 해제: {request.sid}")
+
+@socketio.on('motor_command')
+def handle_motor_command(data):
     global current_command, motor_speed
     
-    data = request.get_json(silent=True) or {}
-    cmd = data.get('command', 'stop')
-    spd = data.get('speed', 100)
+    command = data.get('command', 'stop')
+    speed = data.get('speed', 100)
     
     with command_lock:
-        current_command = cmd
-        motor_speed = spd
+        current_command = command
+        motor_speed = speed
     
-    return jsonify({"status": "success", "command": cmd, "speed": spd})
+    print(f"📡 명령 수신: {command} (속도: {speed}%)")
 
-@app.route('/speed', methods=['POST'])
-def speed():
+@socketio.on('speed_change')
+def handle_speed_change(data):
     global motor_speed
     
-    data = request.get_json(silent=True) or {}
-    spd = data.get('speed', 100)
+    speed = data.get('speed', 100)
     
     with command_lock:
-        motor_speed = spd
+        motor_speed = speed
     
-    return jsonify({"status": "success", "speed": spd})
+    print(f"🎛️ 속도 변경: {speed}%")
 
-# 프로그램 종료 시 정리 함수
+@socketio.on('test_motors')
+def handle_test_motors():
+    print("🧪 모터 테스트 요청")
+    # 별도 스레드에서 테스트 실행 (블로킹 방지)
+    test_thread = threading.Thread(target=test_motors)
+    test_thread.daemon = True
+    test_thread.start()
+
+# 정리 함수
 def cleanup():
     global motor_running
     motor_running = False
-    time.sleep(0.2)  # 스레드가 종료될 시간을 줌
-    stop_motors()
-    GPIO.cleanup()
-    print("GPIO 정리 완료")
+    time.sleep(0.2)
+    
+    # GPIO 정리 전에 먼저 모터 정지
+    try:
+        stop_motors()
+    except:
+        pass  # GPIO 오류 무시
+    
+    # GPIO 정리
+    try:
+        GPIO.cleanup()
+        print("🧹 GPIO 정리 완료")
+    except:
+        print("🧹 GPIO 정리 중 오류 (무시됨)")
 
-# 종료 시 cleanup 함수 실행
 atexit.register(cleanup)
 
 if __name__ == '__main__':
@@ -234,10 +276,14 @@ if __name__ == '__main__':
         motor_thread.daemon = True
         motor_thread.start()
         
-        # 외부에서 접속 가능하도록 호스트를 0.0.0.0으로 설정
-        print("웹 서버를 시작합니다...")
-        app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+        print("🚀 Pathfinder Motor Control with SocketIO 시작!")
+        print("🌐 브라우저에서 http://라즈베리파이IP:5000 으로 접속하세요")
+        print("⚡ 실시간 WebSocket 통신 지원")
+        
+        # SocketIO 서버 실행
+        socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+        
     except Exception as e:
-        print(f"오류 발생: {e}")
+        print(f"❌ 오류 발생: {e}")
     finally:
         cleanup()

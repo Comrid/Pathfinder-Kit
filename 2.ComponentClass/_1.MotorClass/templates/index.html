@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pathfinder AI Control Dashboard</title>
+    <title>Pathfinder Motor Control - Real-time</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
         :root {
             --primary: #3b82f6;
@@ -13,6 +14,7 @@
             --text: #1e293b;
             --danger: #ef4444;
             --success: #10b981;
+            --warning: #f59e0b;
         }
 
         * {
@@ -41,6 +43,24 @@
         h1 {
             margin: 0;
             font-size: 1.5rem;
+        }
+
+        .connection-status {
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            display: inline-block;
+        }
+
+        .connected {
+            background-color: var(--success);
+            color: white;
+        }
+
+        .disconnected {
+            background-color: var(--danger);
+            color: white;
         }
 
         .container {
@@ -100,9 +120,9 @@
             background-color: var(--primary-hover);
         }
 
-        .control-btn:active {
+        .control-btn:active, .control-btn.active {
             transform: scale(0.95);
-            background-color: var(--primary-hover);
+            background-color: var(--success);
         }
 
         .control-btn.empty {
@@ -128,6 +148,7 @@
             border-radius: 0.5rem;
             text-align: center;
             font-weight: 500;
+            transition: all 0.3s ease;
         }
 
         .status.active {
@@ -163,6 +184,12 @@
             transform: translateY(0);
         }
 
+        .test-btn:disabled {
+            background-color: var(--secondary);
+            cursor: not-allowed;
+            transform: none;
+        }
+
         .speed-control {
             margin-top: 1.5rem;
             padding: 1rem;
@@ -185,6 +212,28 @@
             text-align: center;
             font-weight: 600;
             color: var(--primary);
+        }
+
+        .debug-panel {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background-color: #1e293b;
+            color: #e2e8f0;
+            border-radius: 0.5rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .debug-message {
+            margin-bottom: 0.25rem;
+            opacity: 0.8;
+        }
+
+        .debug-message.new {
+            opacity: 1;
+            color: var(--warning);
         }
 
         footer {
@@ -211,14 +260,15 @@
 </head>
 <body>
     <header>
-        <h1>Pathfinder AI Control Dashboard</h1>
+        <h1>🤖 Pathfinder Motor Control</h1>
+        <div class="connection-status" id="connection-status">연결 중...</div>
     </header>
 
     <div class="container">
         <div class="control-panel">
-            <h2 class="panel-title">방향 제어</h2>
+            <h2 class="panel-title">실시간 방향 제어</h2>
             <div class="control-grid">
-                <!-- 왼쪽 앞으로 전진 -->
+                <!-- 왼쪽 앞으로 -->
                 <button class="control-btn" id="forward-left-btn" data-command="forward-left">
                     <svg class="icon" viewBox="0 0 24 24">
                         <path d="M10 4L4 10h3v4h4v-4h3L10 4z" transform="rotate(-45 12 12)"></path>
@@ -236,7 +286,7 @@
                     <span class="key-hint">W</span>
                 </button>
                 
-                <!-- 오른쪽 앞으로 전진 -->
+                <!-- 오른쪽 앞으로 -->
                 <button class="control-btn" id="forward-right-btn" data-command="forward-right">
                     <svg class="icon" viewBox="0 0 24 24">
                         <path d="M10 4L4 10h3v4h4v-4h3L10 4z" transform="rotate(45 12 12)"></path>
@@ -254,8 +304,14 @@
                     <span class="key-hint">A</span>
                 </button>
                 
-                <!-- 중앙 (비어있음) -->
-                <div class="control-btn empty"></div>
+                <!-- 중앙 (정지) -->
+                <button class="control-btn" id="stop-btn" data-command="stop" style="background-color: var(--danger);">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                    </svg>
+                    <span>정지</span>
+                    <span class="key-hint">SPACE</span>
+                </button>
                 
                 <!-- 오른쪽 회전 -->
                 <button class="control-btn" id="right-btn" data-command="right">
@@ -266,7 +322,7 @@
                     <span class="key-hint">D</span>
                 </button>
                 
-                <!-- 왼쪽 뒤로 전진 -->
+                <!-- 왼쪽 뒤로 -->
                 <button class="control-btn" id="backward-left-btn" data-command="backward-left">
                     <svg class="icon" viewBox="0 0 24 24">
                         <path d="M10 4L4 10h3v4h4v-4h3L10 4z" transform="rotate(-135 12 12)"></path>
@@ -284,7 +340,7 @@
                     <span class="key-hint">S</span>
                 </button>
                 
-                <!-- 오른쪽 뒤로 전진 -->
+                <!-- 오른쪽 뒤로 -->
                 <button class="control-btn" id="backward-right-btn" data-command="backward-right">
                     <svg class="icon" viewBox="0 0 24 24">
                         <path d="M10 4L4 10h3v4h4v-4h3L10 4z" transform="rotate(135 12 12)"></path>
@@ -293,6 +349,7 @@
                     <span class="key-hint">C</span>
                 </button>
             </div>
+            
             <div class="status" id="status">대기 중</div>
             
             <div class="speed-control">
@@ -301,143 +358,185 @@
                 <div class="speed-value" id="speed-value">100%</div>
             </div>
             
-            <button class="test-btn" id="test-motors-btn">모터 테스트</button>
+            <button class="test-btn" id="test-motors-btn">🔧 모터 테스트</button>
+            
+            <div class="debug-panel" id="debug-panel">
+                <div class="debug-message">🚀 실시간 모터 제어 시스템 준비됨</div>
+            </div>
         </div>
     </div>
 
     <footer>
-        <p>Pathfinder AI Control Dashboard v1.0</p>
+        <p>⚡ Pathfinder Motor Control v2.0 - Real-time WebSocket</p>
     </footer>
 
     <script>
-        // 상태 표시 요소
+        // WebSocket 연결
+        const socket = io();
+        
+        // DOM 요소들
         const statusElement = document.getElementById('status');
         const speedSlider = document.getElementById('speed-slider');
         const speedValue = document.getElementById('speed-value');
         const testMotorsBtn = document.getElementById('test-motors-btn');
+        const connectionStatus = document.getElementById('connection-status');
+        const debugPanel = document.getElementById('debug-panel');
+        const controlButtons = document.querySelectorAll('.control-btn');
         
-        // 현재 명령 상태
+        // 상태 변수
         let isCommandActive = false;
         let activeCommand = '';
         let motorSpeed = 100;
+        let isConnected = false;
         
-        // 모든 제어 버튼 가져오기
-        const controlButtons = document.querySelectorAll('.control-btn:not(.empty)');
+        // WebSocket 이벤트 핸들러
+        socket.on('connect', function() {
+            isConnected = true;
+            connectionStatus.textContent = '🟢 연결됨';
+            connectionStatus.className = 'connection-status connected';
+            addDebugMessage('🔗 WebSocket 연결 성공');
+        });
+        
+        socket.on('disconnect', function() {
+            isConnected = false;
+            connectionStatus.textContent = '🔴 연결 끊김';
+            connectionStatus.className = 'connection-status disconnected';
+            addDebugMessage('🔌 WebSocket 연결 끊김');
+        });
+        
+        socket.on('motor_status', function(data) {
+            updateStatus(data.command, data.command !== 'stop');
+            addDebugMessage(`⚙️ 모터 상태: ${getCommandName(data.command)} (속도: ${data.speed}%)`);
+        });
+        
+        socket.on('motor_test_status', function(data) {
+            if (data.status === 'testing') {
+                testMotorsBtn.disabled = true;
+                testMotorsBtn.textContent = '🔧 테스트 중...';
+                addDebugMessage('🧪 ' + data.message);
+            } else if (data.status === 'completed') {
+                testMotorsBtn.disabled = false;
+                testMotorsBtn.textContent = '🔧 모터 테스트';
+                addDebugMessage('✅ ' + data.message);
+            }
+        });
+        
+        socket.on('debug_message', function(data) {
+            addDebugMessage('🐛 ' + data.message);
+        });
+        
+        // 디버그 메시지 추가
+        function addDebugMessage(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'debug-message new';
+            messageDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            debugPanel.appendChild(messageDiv);
+            debugPanel.scrollTop = debugPanel.scrollHeight;
+            
+            // 새 메시지 효과 제거
+            setTimeout(() => {
+                messageDiv.classList.remove('new');
+            }, 1000);
+            
+            // 메시지 개수 제한 (최대 50개)
+            const messages = debugPanel.querySelectorAll('.debug-message');
+            if (messages.length > 50) {
+                messages[0].remove();
+            }
+        }
         
         // 속도 슬라이더 이벤트
         speedSlider.addEventListener('input', function() {
             motorSpeed = parseInt(this.value);
             speedValue.textContent = `${motorSpeed}%`;
             
-            if (isCommandActive) {
-                sendSpeedCommand(motorSpeed);
+            if (isCommandActive && isConnected) {
+                socket.emit('speed_change', { speed: motorSpeed });
             }
         });
         
-        // 모터 테스트 버튼 이벤트
+        // 모터 테스트 버튼
         testMotorsBtn.addEventListener('click', function() {
-            fetch('/test-motors', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                updateStatus('test-motors', true);
-                setTimeout(() => {
-                    updateStatus('', false);
-                }, 3000);
-            })
-            .catch(error => {
-                console.error('Error:', error);
-            });
+            if (isConnected && !this.disabled) {
+                socket.emit('test_motors');
+            }
         });
         
         // 명령 전송 함수
         function sendCommand(command) {
-            fetch('/command', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ 
-                    command: command,
-                    speed: motorSpeed
-                })
-            })
-            .catch(error => {
-                console.error('Error:', error);
+            if (!isConnected) return;
+            
+            socket.emit('motor_command', {
+                command: command,
+                speed: motorSpeed
             });
         }
         
-        // 속도 전송 함수
-        function sendSpeedCommand(speed) {
-            fetch('/speed', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ 
-                    speed: speed
-                })
-            })
-            .catch(error => {
-                console.error('Error:', error);
-            });
-        }
-        
-        // 상태 업데이트 함수
+        // 상태 업데이트
         function updateStatus(command, isActive) {
-            if (isActive) {
-                statusElement.textContent = `명령: ${getCommandName(command)}`;
+            // 모든 버튼의 active 클래스 제거
+            controlButtons.forEach(btn => btn.classList.remove('active'));
+            
+            if (isActive && command !== 'stop') {
+                statusElement.textContent = `실행 중: ${getCommandName(command)}`;
                 statusElement.classList.add('active');
+                
+                // 해당 버튼에 active 클래스 추가
+                const activeBtn = document.querySelector(`[data-command="${command}"]`);
+                if (activeBtn) {
+                    activeBtn.classList.add('active');
+                }
             } else {
                 statusElement.textContent = '대기 중';
                 statusElement.classList.remove('active');
             }
         }
         
-        // 명령 이름 가져오기
+        // 명령 이름 변환
         function getCommandName(command) {
-            switch(command) {
-                case 'forward': return '전진';
-                case 'backward': return '후진';
-                case 'left': return '왼쪽 회전';
-                case 'right': return '오른쪽 회전';
-                case 'forward-left': return '왼쪽 앞으로';
-                case 'forward-right': return '오른쪽 앞으로';
-                case 'backward-left': return '왼쪽 뒤로';
-                case 'backward-right': return '오른쪽 뒤로';
-                case 'test-motors': return '모터 테스트 중...';
-                default: return command;
-            }
+            const names = {
+                'forward': '전진',
+                'backward': '후진',
+                'left': '왼쪽 회전',
+                'right': '오른쪽 회전',
+                'forward-left': '왼쪽 앞으로',
+                'forward-right': '오른쪽 앞으로',
+                'backward-left': '왼쪽 뒤로',
+                'backward-right': '오른쪽 뒤로',
+                'stop': '정지'
+            };
+            return names[command] || command;
         }
         
-        // 명령 시작 함수
+        // 명령 시작/중지
         function startCommand(command) {
+            if (!isConnected) return;
+            
             if (isCommandActive && activeCommand === command) return;
             
-            // 새 명령 시작
             activeCommand = command;
-            isCommandActive = true;
+            isCommandActive = (command !== 'stop');
             sendCommand(command);
-            updateStatus(command, true);
         }
         
-        // 명령 중지 함수
         function stopCommand() {
-            if (!isCommandActive) return;
+            if (!isConnected || !isCommandActive) return;
             
             sendCommand('stop');
             isCommandActive = false;
             activeCommand = '';
-            updateStatus('', false);
         }
         
-        // 모든 버튼에 이벤트 리스너 추가
+        // 버튼 이벤트 리스너
         controlButtons.forEach(button => {
             const command = button.dataset.command;
+            if (!command) return;
+            
+            // 정지 버튼은 클릭만
+            if (command === 'stop') {
+                button.addEventListener('click', () => startCommand('stop'));
+                return;
+            }
             
             // 마우스 이벤트
             button.addEventListener('mousedown', () => startCommand(command));
@@ -446,15 +545,15 @@
             
             // 터치 이벤트
             button.addEventListener('touchstart', (e) => {
-                e.preventDefault(); // 기본 동작 방지
+                e.preventDefault();
                 startCommand(command);
             });
             button.addEventListener('touchend', (e) => {
-                e.preventDefault(); // 기본 동작 방지
+                e.preventDefault();
                 stopCommand();
             });
             button.addEventListener('touchcancel', (e) => {
-                e.preventDefault(); // 기본 동작 방지
+                e.preventDefault();
                 stopCommand();
             });
         });
@@ -468,7 +567,8 @@
             'KeyQ': 'forward-left',
             'KeyE': 'forward-right',
             'KeyZ': 'backward-left',
-            'KeyC': 'backward-right'
+            'KeyC': 'backward-right',
+            'Space': 'stop'
         };
         
         document.addEventListener('keydown', (event) => {
@@ -481,16 +581,16 @@
         
         document.addEventListener('keyup', (event) => {
             const command = keyCommandMap[event.code];
-            if (command && activeCommand === command) {
+            if (command && command !== 'stop' && activeCommand === command) {
                 event.preventDefault();
                 stopCommand();
             }
         });
         
-        // 페이지 떠날 때 명령 중지
+        // 페이지 떠날 때 정지
         window.addEventListener('beforeunload', () => {
-            if (isCommandActive) {
-                sendCommand('stop');
+            if (isCommandActive && isConnected) {
+                socket.emit('motor_command', { command: 'stop', speed: 0 });
             }
         });
     </script>

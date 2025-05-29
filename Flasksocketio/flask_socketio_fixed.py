@@ -393,9 +393,9 @@ HTML_TEMPLATE = '''
                         <button class="example-btn" onclick="loadExample('sensor')">센서 시뮬레이션</button>
                         <button class="example-btn" onclick="loadExample('counter')">카운터</button>
                         <button class="example-btn" onclick="loadExample('time')">시간 출력</button>
-                    </div>
-                    
-                    <textarea id="codeEditor" class="code-editor" placeholder="Python 코드를 입력하세요...">
+        </div>
+        
+            <textarea id="codeEditor" class="code-editor" placeholder="Python 코드를 입력하세요...">
 # 실시간 무한루프 예제
 import time
 
@@ -405,20 +405,20 @@ while True:
     print(f"카운트: {count}")
     print(f"현재 시간: {time.strftime('%H:%M:%S')}")
     time.sleep(1)  # 1초 대기
-                    </textarea>
-                </div>
-                
-                <div class="controls">
+            </textarea>
+        </div>
+        
+        <div class="controls">
                     <button class="btn" onclick="executeCode()">▶️ 일반 실행</button>
                     <button class="btn btn-realtime" onclick="executeRealtime()" id="realtimeBtn">🔄 실시간 실행</button>
                     <button class="btn btn-danger" onclick="stopExecution()" id="stopBtn" disabled>⏹️ 중지</button>
                     <button class="btn btn-success" onclick="sendPing()">📡 Ping</button>
                     <button class="btn btn-warning" onclick="clearOutput()">🗑️ 지우기</button>
-                </div>
-                
-                <div class="output-section">
+        </div>
+        
+        <div class="output-section">
                     <h3 class="section-title">일반 실행 결과</h3>
-                    <div id="output" class="output"></div>
+            <div id="output" class="output"></div>
                 </div>
             </div>
             
@@ -533,51 +533,51 @@ while True:
         function connectToServer() {
             updateStatus('connecting', '서버에 연결 중...');
             
-            socket = io({
+                socket = io({
                 transports: ['polling', 'websocket'],
-                timeout: 20000,
-                forceNew: true
-            });
-            
-            socket.on('connect', function() {
-                updateStatus('connected', '서버에 연결됨');
-                addOutput('✅ 서버에 연결되었습니다!', 'success');
-                document.getElementById('connectionStatus').textContent = '연결됨';
-            });
-            
-            socket.on('disconnect', function(reason) {
-                updateStatus('disconnected', '서버 연결 해제됨');
-                addOutput('❌ 서버 연결이 해제되었습니다: ' + reason, 'error');
-                document.getElementById('connectionStatus').textContent = '연결 안됨';
+                    timeout: 20000,
+                    forceNew: true
+                });
+                
+                socket.on('connect', function() {
+                    updateStatus('connected', '서버에 연결됨');
+                    addOutput('✅ 서버에 연결되었습니다!', 'success');
+                    document.getElementById('connectionStatus').textContent = '연결됨';
+                });
+                
+                socket.on('disconnect', function(reason) {
+                    updateStatus('disconnected', '서버 연결 해제됨');
+                    addOutput('❌ 서버 연결이 해제되었습니다: ' + reason, 'error');
+                    document.getElementById('connectionStatus').textContent = '연결 안됨';
                 setRealtimeRunning(false);
-            });
-            
+                });
+                
             socket.on('connect_error', function(error) {
                 addOutput('❌ 연결 오류: ' + error, 'error');
-            });
-            
-            // 일반 실행 이벤트
-            socket.on('execution_start', function(data) {
-                updateStatus('executing', '코드 실행 중...');
-                addOutput('⏳ ' + data.message, 'info');
-            });
-            
-            socket.on('execution_result', function(data) {
-                updateStatus('connected', '실행 완료');
-                executionCount++;
-                document.getElementById('executionCount').textContent = executionCount;
+                });
                 
-                if (data.success) {
-                    if (data.stdout) {
-                        addOutput('📤 출력:\\n' + data.stdout, 'success');
-                    }
-                    if (data.stderr) {
+            // 일반 실행 이벤트
+                socket.on('execution_start', function(data) {
+                    updateStatus('executing', '코드 실행 중...');
+                    addOutput('⏳ ' + data.message, 'info');
+                });
+                
+                socket.on('execution_result', function(data) {
+                    updateStatus('connected', '실행 완료');
+                    executionCount++;
+                    document.getElementById('executionCount').textContent = executionCount;
+                    
+                    if (data.success) {
+                        if (data.stdout) {
+                            addOutput('📤 출력:\\n' + data.stdout, 'success');
+                        }
+                        if (data.stderr) {
                         addOutput('⚠️ 경고:\\n' + data.stderr, 'warning');
-                    }
-                    if (!data.stdout && !data.stderr) {
+                        }
+                        if (!data.stdout && !data.stderr) {
                         addOutput('✅ 코드가 성공적으로 실행되었습니다', 'success');
-                    }
-                } else {
+                        }
+                    } else {
                     addOutput('❌ 오류: ' + data.error, 'error');
                 }
             });
@@ -589,8 +589,8 @@ while True:
                 setRealtimeRunning(true);
                 realtimeCount++;
                 document.getElementById('realtimeCount').textContent = realtimeCount;
-            });
-            
+                });
+                
             socket.on('realtime_output', function(data) {
                 addRealtimeOutput(data.output, 'realtime');
             });
@@ -599,14 +599,14 @@ while True:
                 updateStatus('connected', '실행 완료');
                 addRealtimeOutput('✅ ' + data.message, 'success');
                 setRealtimeRunning(false);
-            });
-            
+                });
+                
             socket.on('execution_stopped', function(data) {
                 updateStatus('connected', '실행 중지됨');
                 addRealtimeOutput('⏹️ ' + data.message, 'warning');
                 setRealtimeRunning(false);
-            });
-            
+                });
+                
             socket.on('execution_error', function(data) {
                 addRealtimeOutput('❌ ' + data.error, 'error');
                 setRealtimeRunning(false);
