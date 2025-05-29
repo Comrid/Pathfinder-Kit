@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>패스파인더 통합 제어 시스템</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(45deg, #2196F3, #21CBF3);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            padding: 30px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 5px solid #2196F3;
+        }
+
+        .section h3 {
+            margin-bottom: 15px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* 카메라 섹션 */
+        .camera-container {
+            text-align: center;
+        }
+
+        .camera-feed {
+            width: 100%;
+            max-width: 640px;
+            height: auto;
+            border-radius: 10px;
+            border: 2px solid #ddd;
+            background: #000;
+        }
+
+        /* 모터 제어 섹션 */
+        .motor-controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .motor-btn {
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #4CAF50;
+            color: white;
+        }
+
+        .motor-btn:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+
+        .motor-btn:active {
+            transform: translateY(0);
+            background: #3d8b40;
+        }
+
+        .motor-btn.stop {
+            background: #f44336;
+            grid-column: 2;
+        }
+
+        .motor-btn.stop:hover {
+            background: #da190b;
+        }
+
+        .speed-control {
+            margin-top: 15px;
+        }
+
+        .speed-control label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .speed-slider {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #2196F3;
+            cursor: pointer;
+        }
+
+        .speed-value {
+            text-align: center;
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #2196F3;
+            margin-top: 5px;
+        }
+
+        /* 초음파 센서 섹션 */
+        .ultrasonic-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #45a049;
+        }
+
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #da190b;
+        }
+
+        .btn-warning {
+            background: #ff9800;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #e68900;
+        }
+
+        .btn:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .distance-display {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+
+        .distance-value {
+            font-size: 3em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .distance-unit {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+
+        .stat-card h4 {
+            color: #666;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #2196F3;
+        }
+
+        .interval-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .interval-control input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 80px;
+        }
+
+        .polling-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #e3f2fd;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #f44336;
+        }
+
+        .status-indicator.active {
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        /* 시스템 상태 */
+        .system-status {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .status-item {
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+
+        .status-item.online {
+            border-color: #4CAF50;
+            background: #e8f5e8;
+        }
+
+        .status-item.offline {
+            border-color: #f44336;
+            background: #ffebee;
+        }
+
+        /* 로그 */
+        .log-container {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+        }
+
+        .log-entry {
+            padding: 5px 10px;
+            margin-bottom: 3px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.85em;
+            border-left: 3px solid #2196F3;
+        }
+
+        .log-entry.error {
+            border-left-color: #f44336;
+            background: #ffebee;
+        }
+
+        .log-entry.success {
+            border-left-color: #4CAF50;
+            background: #e8f5e8;
+        }
+
+        /* 반응형 디자인 */
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .motor-controls {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .system-status {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 패스파인더 통합 제어 시스템</h1>
+            <p>모터 제어 • 초음파 센서 • 카메라 스트리밍</p>
+        </div>
+
+        <div class="main-content">
+            <!-- 왼쪽 패널: 카메라 & 모터 제어 -->
+            <div class="left-panel">
+                <!-- 카메라 섹션 -->
+                <div class="section">
+                    <h3>📷 실시간 카메라</h3>
+                    <div class="camera-container">
+                        <img src="/video_feed" class="camera-feed" alt="Camera Feed">
+                    </div>
+                </div>
+
+                <!-- 모터 제어 섹션 -->
+                <div class="section">
+                    <h3>🚗 모터 제어</h3>
+                    
+                    <!-- 방향 제어 버튼 -->
+                    <div class="motor-controls">
+                        <button class="motor-btn" data-command="forward-left">↖</button>
+                        <button class="motor-btn" data-command="forward">↑</button>
+                        <button class="motor-btn" data-command="forward-right">↗</button>
+                        
+                        <button class="motor-btn" data-command="left">←</button>
+                        <button class="motor-btn stop" data-command="stop">⏹</button>
+                        <button class="motor-btn" data-command="right">→</button>
+                        
+                        <button class="motor-btn" data-command="backward-left">↙</button>
+                        <button class="motor-btn" data-command="backward">↓</button>
+                        <button class="motor-btn" data-command="backward-right">↘</button>
+                    </div>
+
+                    <!-- 속도 제어 -->
+                    <div class="speed-control">
+                        <label for="speedSlider">모터 속도</label>
+                        <input type="range" id="speedSlider" class="speed-slider" min="0" max="100" value="100">
+                        <div class="speed-value" id="speedValue">100%</div>
+                    </div>
+
+                    <!-- 비상 정지 -->
+                    <button class="btn btn-danger" id="emergencyStop" style="width: 100%; margin-top: 15px;">
+                        🚨 비상 정지
+                    </button>
+                </div>
+            </div>
+
+            <!-- 오른쪽 패널: 초음파 센서 & 시스템 상태 -->
+            <div class="right-panel">
+                <!-- 시스템 상태 -->
+                <div class="section">
+                    <h3>⚙️ 시스템 상태</h3>
+                    <div class="system-status">
+                        <div class="status-item" id="gpioStatus">
+                            <strong>GPIO</strong><br>
+                            <span id="gpioText">확인 중...</span>
+                        </div>
+                        <div class="status-item" id="cameraStatus">
+                            <strong>카메라</strong><br>
+                            <span id="cameraText">확인 중...</span>
+                        </div>
+                        <div class="status-item" id="motorStatus">
+                            <strong>모터</strong><br>
+                            <span id="motorText">확인 중...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 초음파 센서 섹션 -->
+                <div class="section">
+                    <h3>📡 초음파 센서</h3>
+                    
+                    <!-- 폴링 상태 -->
+                    <div class="polling-status">
+                        <div class="status-indicator" id="ultrasonicIndicator"></div>
+                        <span id="ultrasonicStatus">대기 중...</span>
+                    </div>
+
+                    <!-- 측정 간격 설정 -->
+                    <div class="interval-control">
+                        <label for="intervalInput">측정 간격:</label>
+                        <input type="number" id="intervalInput" value="1000" min="100" max="10000" step="100">
+                        <span>ms</span>
+                    </div>
+
+                    <!-- 제어 버튼 -->
+                    <div class="ultrasonic-controls">
+                        <button class="btn btn-primary" id="startUltrasonic">📡 측정 시작</button>
+                        <button class="btn btn-danger" id="stopUltrasonic" disabled>⏹️ 측정 중지</button>
+                        <button class="btn btn-warning" id="clearUltrasonic">🧹 데이터 초기화</button>
+                    </div>
+
+                    <!-- 거리 표시 -->
+                    <div class="distance-display">
+                        <div class="distance-value" id="currentDistance">--</div>
+                        <div class="distance-unit">cm</div>
+                    </div>
+
+                    <!-- 통계 -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h4>측정 횟수</h4>
+                            <div class="stat-value" id="measurementCount">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>평균 거리</h4>
+                            <div class="stat-value" id="avgDistance">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>최소 거리</h4>
+                            <div class="stat-value" id="minDistance">--</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>최대 거리</h4>
+                            <div class="stat-value" id="maxDistance">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 로그 섹션 -->
+                <div class="section">
+                    <h3>📝 시스템 로그</h3>
+                    <div class="log-container" id="logContainer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class PathfinderIntegratedSystem {
+            constructor() {
+                this.socket = io();
+                this.isUltrasonicPolling = false;
+                this.ultrasonicInterval = null;
+                
+                this.initializeElements();
+                this.bindEvents();
+                this.connectSocket();
+                this.loadSystemStatus();
+            }
+
+            initializeElements() {
+                // 모터 제어 요소
+                this.motorButtons = document.querySelectorAll('.motor-btn');
+                this.speedSlider = document.getElementById('speedSlider');
+                this.speedValue = document.getElementById('speedValue');
+                this.emergencyStop = document.getElementById('emergencyStop');
+
+                // 초음파 센서 요소
+                this.startUltrasonicBtn = document.getElementById('startUltrasonic');
+                this.stopUltrasonicBtn = document.getElementById('stopUltrasonic');
+                this.clearUltrasonicBtn = document.getElementById('clearUltrasonic');
+                this.intervalInput = document.getElementById('intervalInput');
+                this.ultrasonicIndicator = document.getElementById('ultrasonicIndicator');
+                this.ultrasonicStatus = document.getElementById('ultrasonicStatus');
+                this.currentDistance = document.getElementById('currentDistance');
+                this.measurementCount = document.getElementById('measurementCount');
+                this.avgDistance = document.getElementById('avgDistance');
+                this.minDistance = document.getElementById('minDistance');
+                this.maxDistance = document.getElementById('maxDistance');
+
+                // 시스템 상태 요소
+                this.gpioStatus = document.getElementById('gpioStatus');
+                this.cameraStatus = document.getElementById('cameraStatus');
+                this.motorStatus = document.getElementById('motorStatus');
+                this.gpioText = document.getElementById('gpioText');
+                this.cameraText = document.getElementById('cameraText');
+                this.motorText = document.getElementById('motorText');
+
+                // 로그 요소
+                this.logContainer = document.getElementById('logContainer');
+            }
+
+            bindEvents() {
+                // 모터 제어 이벤트
+                this.motorButtons.forEach(btn => {
+                    btn.addEventListener('mousedown', () => {
+                        const command = btn.dataset.command;
+                        this.sendMotorCommand(command);
+                    });
+                    
+                    btn.addEventListener('mouseup', () => {
+                        this.sendMotorCommand('stop');
+                    });
+                    
+                    btn.addEventListener('mouseleave', () => {
+                        this.sendMotorCommand('stop');
+                    });
+                });
+
+                // 속도 슬라이더
+                this.speedSlider.addEventListener('input', (e) => {
+                    const speed = e.target.value;
+                    this.speedValue.textContent = speed + '%';
+                    this.socket.emit('speed_change', { speed: parseInt(speed) });
+                });
+
+                // 비상 정지
+                this.emergencyStop.addEventListener('click', () => {
+                    this.socket.emit('emergency_stop');
+                    this.addLog('🚨 비상 정지 실행', 'error');
+                });
+
+                // 초음파 센서 제어
+                this.startUltrasonicBtn.addEventListener('click', () => this.startUltrasonicPolling());
+                this.stopUltrasonicBtn.addEventListener('click', () => this.stopUltrasonicPolling());
+                this.clearUltrasonicBtn.addEventListener('click', () => this.clearUltrasonicData());
+
+                // 키보드 제어
+                document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+                document.addEventListener('keyup', (e) => this.handleKeyUp(e));
+            }
+
+            connectSocket() {
+                this.socket.on('connect', () => {
+                    this.addLog('🔗 서버 연결됨', 'success');
+                });
+
+                this.socket.on('disconnect', () => {
+                    this.addLog('🔌 서버 연결 해제됨', 'error');
+                });
+
+                this.socket.on('system_status', (data) => {
+                    this.updateSystemStatus(data);
+                });
+
+                this.socket.on('motor_status', (data) => {
+                    this.addLog(`🚗 모터: ${data.command} (속도: ${data.speed}%)`);
+                });
+
+                this.socket.on('emergency_stop_executed', () => {
+                    this.addLog('🚨 비상 정지 완료', 'error');
+                });
+            }
+
+            sendMotorCommand(command) {
+                this.socket.emit('motor_command', { command: command });
+            }
+
+            async loadSystemStatus() {
+                try {
+                    const response = await fetch('/api/system/status');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.updateSystemStatus(data);
+                    }
+                } catch (error) {
+                    this.addLog(`시스템 상태 로드 실패: ${error.message}`, 'error');
+                }
+            }
+
+            updateSystemStatus(data) {
+                // GPIO 상태
+                if (data.gpio_available) {
+                    this.gpioStatus.className = 'status-item online';
+                    this.gpioText.textContent = '온라인';
+                } else {
+                    this.gpioStatus.className = 'status-item offline';
+                    this.gpioText.textContent = '시뮬레이션';
+                }
+
+                // 카메라 상태
+                if (data.camera_available) {
+                    this.cameraStatus.className = 'status-item online';
+                    this.cameraText.textContent = '활성';
+                } else {
+                    this.cameraStatus.className = 'status-item offline';
+                    this.cameraText.textContent = '비활성';
+                }
+
+                // 모터 상태
+                if (data.motor_running) {
+                    this.motorStatus.className = 'status-item online';
+                    this.motorText.textContent = '준비됨';
+                } else {
+                    this.motorStatus.className = 'status-item offline';
+                    this.motorText.textContent = '중지됨';
+                }
+            }
+
+            async startUltrasonicPolling() {
+                if (this.isUltrasonicPolling) return;
+                
+                this.isUltrasonicPolling = true;
+                this.updateUltrasonicUI();
+                
+                const interval = parseInt(this.intervalInput.value);
+                this.ultrasonicInterval = setInterval(() => {
+                    this.fetchUltrasonicDistance();
+                }, interval);
+                
+                this.addLog('📡 초음파 센서 측정 시작', 'success');
+            }
+
+            stopUltrasonicPolling() {
+                if (!this.isUltrasonicPolling) return;
+                
+                this.isUltrasonicPolling = false;
+                if (this.ultrasonicInterval) {
+                    clearInterval(this.ultrasonicInterval);
+                    this.ultrasonicInterval = null;
+                }
+                
+                this.updateUltrasonicUI();
+                this.addLog('📡 초음파 센서 측정 중지', 'success');
+            }
+
+            async fetchUltrasonicDistance() {
+                try {
+                    const response = await fetch('/api/distance');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.updateUltrasonicDisplay(data);
+                    } else {
+                        this.addLog(`초음파 센서 오류: ${data.error}`, 'error');
+                    }
+                } catch (error) {
+                    this.addLog(`네트워크 오류: ${error.message}`, 'error');
+                }
+            }
+
+            updateUltrasonicDisplay(data) {
+                // 현재 거리
+                this.currentDistance.textContent = data.distance !== null ? data.distance : '--';
+                
+                // 측정 횟수
+                this.measurementCount.textContent = data.count || 0;
+                
+                // 통계
+                const stats = data.stats;
+                this.avgDistance.textContent = stats.avg_distance !== null ? stats.avg_distance : '--';
+                this.minDistance.textContent = stats.min_distance !== null ? stats.min_distance : '--';
+                this.maxDistance.textContent = stats.max_distance !== null ? stats.max_distance : '--';
+            }
+
+            async clearUltrasonicData() {
+                try {
+                    const response = await fetch('/api/ultrasonic/clear');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.updateUltrasonicDisplay({
+                            distance: null,
+                            count: 0,
+                            stats: {
+                                avg_distance: null,
+                                min_distance: null,
+                                max_distance: null
+                            }
+                        });
+                        this.addLog('🧹 초음파 센서 데이터 초기화됨', 'success');
+                    }
+                } catch (error) {
+                    this.addLog(`데이터 초기화 실패: ${error.message}`, 'error');
+                }
+            }
+
+            updateUltrasonicUI() {
+                this.startUltrasonicBtn.disabled = this.isUltrasonicPolling;
+                this.stopUltrasonicBtn.disabled = !this.isUltrasonicPolling;
+                this.intervalInput.disabled = this.isUltrasonicPolling;
+                
+                if (this.isUltrasonicPolling) {
+                    this.ultrasonicIndicator.classList.add('active');
+                    this.ultrasonicStatus.textContent = `측정 중... (${this.intervalInput.value}ms 간격)`;
+                } else {
+                    this.ultrasonicIndicator.classList.remove('active');
+                    this.ultrasonicStatus.textContent = '대기 중...';
+                }
+            }
+
+            handleKeyDown(e) {
+                if (e.repeat) return;
+                
+                switch(e.key) {
+                    case 'ArrowUp':
+                    case 'w':
+                    case 'W':
+                        e.preventDefault();
+                        this.sendMotorCommand('forward');
+                        break;
+                    case 'ArrowDown':
+                    case 's':
+                    case 'S':
+                        e.preventDefault();
+                        this.sendMotorCommand('backward');
+                        break;
+                    case 'ArrowLeft':
+                    case 'a':
+                    case 'A':
+                        e.preventDefault();
+                        this.sendMotorCommand('left');
+                        break;
+                    case 'ArrowRight':
+                    case 'd':
+                    case 'D':
+                        e.preventDefault();
+                        this.sendMotorCommand('right');
+                        break;
+                    case ' ':
+                        e.preventDefault();
+                        this.socket.emit('emergency_stop');
+                        break;
+                }
+            }
+
+            handleKeyUp(e) {
+                switch(e.key) {
+                    case 'ArrowUp':
+                    case 'ArrowDown':
+                    case 'ArrowLeft':
+                    case 'ArrowRight':
+                    case 'w':
+                    case 'W':
+                    case 's':
+                    case 'S':
+                    case 'a':
+                    case 'A':
+                    case 'd':
+                    case 'D':
+                        e.preventDefault();
+                        this.sendMotorCommand('stop');
+                        break;
+                }
+            }
+
+            addLog(message, type = 'info') {
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry ${type}`;
+                logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                
+                this.logContainer.insertBefore(logEntry, this.logContainer.firstChild);
+                
+                // 로그 개수 제한 (최대 30개)
+                while (this.logContainer.children.length > 30) {
+                    this.logContainer.removeChild(this.logContainer.lastChild);
+                }
+            }
+        }
+
+        // 앱 초기화
+        document.addEventListener('DOMContentLoaded', () => {
+            new PathfinderIntegratedSystem();
+        });
+    </script>
+</body>
+</html> 

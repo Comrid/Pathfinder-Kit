@@ -266,7 +266,9 @@ if __name__ == '__main__':
                 print("🔧 하드웨어 모드: 실제 센서 사용")
             else:
                 print("🎮 시뮬레이션 모드: 가상 데이터 생성")
-            print("🌐 웹 브라우저에서 http://라즈베리파이IP:5000 접속")
+            import subprocess
+            ip = subprocess.check_output(['hostname', '-I'], shell=False).decode().split()[0]
+            print(f"🌐 브라우저에서 http://{ip}:5000 으로 접속하세요")
             print("-" * 50)
             
             app.run(host='0.0.0.0', port=5000, debug=True)
