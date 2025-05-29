@@ -277,7 +277,9 @@ if __name__ == '__main__':
         motor_thread.start()
         
         print("🚀 Pathfinder Motor Control with SocketIO 시작!")
-        print("🌐 브라우저에서 http://라즈베리파이IP:5000 으로 접속하세요")
+        import subprocess
+        ip = subprocess.check_output(['hostname', '-I'], shell=False).decode().split()[0]
+        print(f"🌐 브라우저에서 http://{ip}:5000 으로 접속하세요")
         print("⚡ 실시간 WebSocket 통신 지원")
         
         # SocketIO 서버 실행
