@@ -3,262 +3,245 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pathfinder Ultrasonic Sensor - Real-time</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <title>패스파인더 초음파 센서 (폴링 모드)</title>
     <style>
-        :root {
-            --primary: #3b82f6;
-            --primary-hover: #2563eb;
-            --secondary: #64748b;
-            --background: #f8fafc;
-            --text: #1e293b;
-            --danger: #ef4444;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --info: #06b6d4;
-        }
-
         * {
-            box-sizing: border-box;
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
         }
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--background);
-            color: var(--text);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        header {
-            background: linear-gradient(135deg, var(--primary), var(--info));
-            color: white;
-            padding: 1rem;
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        h1 {
-            margin: 0;
-            font-size: 1.5rem;
-        }
-
-        .connection-status {
-            font-size: 0.875rem;
-            margin-top: 0.5rem;
-            padding: 0.25rem 0.5rem;
-            border-radius: 0.25rem;
-            display: inline-block;
-        }
-
-        .connected {
-            background-color: var(--success);
-            color: white;
-        }
-
-        .disconnected {
-            background-color: var(--danger);
-            color: white;
+            padding: 20px;
         }
 
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 1rem;
-            flex: 1;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
         }
 
-        .main-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.5rem;
-            margin-top: 1rem;
-        }
-
-        .panel {
-            background-color: white;
-            border-radius: 0.5rem;
-            padding: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-        }
-
-        .panel-title {
-            font-size: 1.25rem;
-            margin-top: 0;
-            margin-bottom: 1.5rem;
+        .header {
+            background: linear-gradient(45deg, #2196F3, #21CBF3);
+            color: white;
+            padding: 30px;
             text-align: center;
-            color: var(--primary);
-            font-weight: 600;
         }
 
-        .distance-display {
-            text-align: center;
-            margin-bottom: 2rem;
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
         }
 
-        .distance-value {
-            font-size: 4rem;
-            font-weight: bold;
-            color: var(--primary);
-            margin-bottom: 0.5rem;
-            font-family: 'Courier New', monospace;
-            transition: all 0.2s ease;
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
         }
 
-        .distance-unit {
-            font-size: 1.5rem;
-            color: var(--secondary);
-            margin-left: 0.5rem;
+        .main-content {
+            padding: 30px;
         }
 
-        .distance-status {
-            font-size: 1rem;
-            color: var(--secondary);
-            margin-top: 0.5rem;
-            transition: color 0.3s ease;
-        }
-
-        .control-buttons {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-            margin-bottom: 1.5rem;
+        .control-panel {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
         }
 
         .btn {
+            padding: 12px 24px;
             border: none;
-            padding: 0.75rem 1.5rem;
-            border-radius: 0.5rem;
-            font-weight: 600;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
             cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
         }
 
         .btn-primary {
-            background-color: var(--primary);
+            background: #4CAF50;
             color: white;
         }
 
         .btn-primary:hover {
-            background-color: var(--primary-hover);
-        }
-
-        .btn-success {
-            background-color: var(--success);
-            color: white;
-        }
-
-        .btn-success:hover {
-            background-color: #0d9488;
+            background: #45a049;
+            transform: translateY(-2px);
         }
 
         .btn-danger {
-            background-color: var(--danger);
+            background: #f44336;
             color: white;
         }
 
         .btn-danger:hover {
-            background-color: #dc2626;
+            background: #da190b;
+            transform: translateY(-2px);
         }
 
         .btn-warning {
-            background-color: var(--warning);
+            background: #ff9800;
             color: white;
         }
 
         .btn-warning:hover {
-            background-color: #d97706;
+            background: #e68900;
+            transform: translateY(-2px);
+        }
+
+        .btn-info {
+            background: #2196F3;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #0b7dda;
+            transform: translateY(-2px);
         }
 
         .btn:disabled {
-            background-color: var(--secondary);
+            background: #cccccc;
             cursor: not-allowed;
-            opacity: 0.6;
+            transform: none;
         }
 
-        .btn.active {
-            transform: scale(0.95);
-            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
-        }
-
-        .stats-grid {
+        .status-panel {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-            margin-bottom: 1.5rem;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
         }
 
-        .stat-card {
-            background-color: #f1f5f9;
-            padding: 1rem;
-            border-radius: 0.5rem;
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
             text-align: center;
-            transition: all 0.2s ease;
+            border-left: 5px solid #2196F3;
         }
 
-        .stat-value {
-            font-size: 1.5rem;
+        .status-card h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .status-value {
+            font-size: 2.5em;
             font-weight: bold;
-            color: var(--primary);
-            margin-bottom: 0.25rem;
-            transition: all 0.2s ease;
+            color: #2196F3;
+            margin-bottom: 5px;
         }
 
-        .stat-label {
-            font-size: 0.875rem;
-            color: var(--secondary);
+        .status-unit {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .distance-display {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+            border-left-color: #4CAF50;
+        }
+
+        .distance-display .status-value {
+            color: white;
         }
 
         .chart-container {
-            position: relative;
-            height: 300px;
-            margin-bottom: 1rem;
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
         }
 
-        .debug-panel {
-            margin-top: 1.5rem;
-            padding: 1rem;
-            background-color: #1e293b;
-            color: #e2e8f0;
-            border-radius: 0.5rem;
-            font-family: 'Courier New', monospace;
-            font-size: 0.75rem;
-            max-height: 200px;
+        .chart-container h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .chart {
+            width: 100%;
+            height: 300px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: white;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .chart-bar {
+            position: absolute;
+            bottom: 0;
+            background: linear-gradient(to top, #2196F3, #64B5F6);
+            border-radius: 3px 3px 0 0;
+            transition: height 0.5s ease;
+            min-width: 8px;
+        }
+
+        .log-container {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            max-height: 300px;
             overflow-y: auto;
         }
 
-        .debug-message {
-            margin-bottom: 0.25rem;
-            opacity: 0.8;
-            transition: opacity 0.3s ease;
+        .log-container h3 {
+            margin-bottom: 15px;
+            color: #333;
         }
 
-        .debug-message.new {
-            opacity: 1;
-            color: var(--warning);
+        .log-entry {
+            padding: 8px 12px;
+            margin-bottom: 5px;
+            background: white;
+            border-radius: 5px;
+            border-left: 3px solid #2196F3;
+            font-family: monospace;
+            font-size: 0.9em;
         }
 
-        .measurement-indicator {
-            display: inline-block;
+        .log-entry.error {
+            border-left-color: #f44336;
+            background: #ffebee;
+        }
+
+        .log-entry.success {
+            border-left-color: #4CAF50;
+            background: #e8f5e8;
+        }
+
+        .polling-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #e3f2fd;
+            border-radius: 8px;
+            border-left: 4px solid #2196F3;
+        }
+
+        .status-indicator {
             width: 12px;
             height: 12px;
             border-radius: 50%;
-            margin-right: 0.5rem;
-            background-color: var(--secondary);
-            transition: all 0.3s ease;
+            background: #4CAF50;
+            animation: pulse 2s infinite;
         }
 
-        .measurement-indicator.active {
-            background-color: var(--success);
-            animation: pulse 1s infinite;
+        .status-indicator.stopped {
+            background: #f44336;
+            animation: none;
         }
 
         @keyframes pulse {
@@ -267,612 +250,351 @@
             100% { opacity: 1; }
         }
 
-        .distance-bar {
-            width: 100%;
-            height: 20px;
-            background-color: #e2e8f0;
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 1rem 0;
+        .interval-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
         }
 
-        .distance-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--success), var(--warning), var(--danger));
-            transition: all 0.3s ease;
-            border-radius: 10px;
+        .interval-control label {
+            font-weight: bold;
         }
 
-        footer {
-            text-align: center;
-            padding: 1rem;
-            font-size: 0.875rem;
-            color: var(--secondary);
-            background-color: white;
-            border-top: 1px solid #e2e8f0;
-            margin-top: auto;
+        .interval-control input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 80px;
         }
 
         @media (max-width: 768px) {
-            .main-grid {
-                grid-template-columns: 1fr;
+            .control-panel {
+                flex-direction: column;
             }
             
-            .distance-value {
-                font-size: 3rem;
+            .btn {
+                width: 100%;
+                text-align: center;
             }
             
-            .control-buttons {
+            .status-panel {
                 grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
 <body>
-    <header>
-        <h1>📡 Pathfinder Ultrasonic Sensor</h1>
-        <div class="connection-status" id="connection-status">연결 중...</div>
-    </header>
-
     <div class="container">
-        <div class="main-grid">
-            <!-- 실시간 측정 패널 -->
-            <div class="panel">
-                <h2 class="panel-title">
-                    <span class="measurement-indicator" id="measurement-indicator"></span>
-                    실시간 거리 측정
-                </h2>
-                
-                <div class="distance-display">
-                    <div class="distance-value" id="distance-value">
-                        --.-<span class="distance-unit">cm</span>
-                    </div>
-                    <div class="distance-status" id="distance-status">측정 대기 중</div>
-                    
-                    <div class="distance-bar">
-                        <div class="distance-fill" id="distance-fill" style="width: 0%"></div>
-                    </div>
-                </div>
-
-                <div class="control-buttons">
-                    <button class="btn btn-success" id="start-btn">
-                        ▶️ 측정 시작
-                    </button>
-                    <button class="btn btn-danger" id="stop-btn" disabled>
-                        ⏹️ 측정 중지
-                    </button>
-                    <button class="btn btn-primary" id="test-btn">
-                        🔧 센서 테스트
-                    </button>
-                    <button class="btn btn-warning" id="clear-btn">
-                        🧹 데이터 초기화
-                    </button>
-                </div>
-
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-value" id="min-distance">--</div>
-                        <div class="stat-label">최소 거리 (cm)</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="max-distance">--</div>
-                        <div class="stat-label">최대 거리 (cm)</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="avg-distance">--</div>
-                        <div class="stat-label">평균 거리 (cm)</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="total-measurements">0</div>
-                        <div class="stat-label">총 측정 횟수</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 데이터 시각화 패널 -->
-            <div class="panel">
-                <h2 class="panel-title">📊 실시간 데이터 차트</h2>
-                
-                <div class="chart-container">
-                    <canvas id="distance-chart"></canvas>
-                </div>
-                
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-value" id="error-count">0</div>
-                        <div class="stat-label">측정 오류</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="success-rate">100%</div>
-                        <div class="stat-label">성공률</div>
-                    </div>
-                </div>
-            </div>
+        <div class="header">
+            <h1>🤖 패스파인더 초음파 센서</h1>
+            <p>폴링 방식 실시간 거리 측정 시스템</p>
         </div>
 
-        <!-- 디버그 패널 -->
-        <div class="panel">
-            <h2 class="panel-title">🐛 실시간 로그</h2>
-            <div class="debug-panel" id="debug-panel">
-                <div class="debug-message">🚀 초음파 센서 시스템 준비됨</div>
+        <div class="main-content">
+            <!-- 폴링 상태 표시 -->
+            <div class="polling-status">
+                <div class="status-indicator" id="statusIndicator"></div>
+                <span id="pollingStatus">대기 중...</span>
+            </div>
+
+            <!-- 측정 간격 설정 -->
+            <div class="interval-control">
+                <label for="intervalInput">측정 간격:</label>
+                <input type="number" id="intervalInput" value="1000" min="500" max="10000" step="100">
+                <span>ms</span>
+            </div>
+
+            <!-- 제어 버튼 -->
+            <div class="control-panel">
+                <button class="btn btn-primary" id="startBtn">📡 측정 시작</button>
+                <button class="btn btn-danger" id="stopBtn" disabled>⏹️ 측정 중지</button>
+                <button class="btn btn-warning" id="clearBtn">🧹 데이터 초기화</button>
+                <button class="btn btn-info" id="testBtn">🧪 센서 테스트</button>
+            </div>
+
+            <!-- 상태 패널 -->
+            <div class="status-panel">
+                <div class="status-card distance-display">
+                    <h3>현재 거리</h3>
+                    <div class="status-value" id="currentDistance">--</div>
+                    <div class="status-unit">cm</div>
+                </div>
+                <div class="status-card">
+                    <h3>측정 횟수</h3>
+                    <div class="status-value" id="measurementCount">0</div>
+                    <div class="status-unit">회</div>
+                </div>
+                <div class="status-card">
+                    <h3>평균 거리</h3>
+                    <div class="status-value" id="avgDistance">--</div>
+                    <div class="status-unit">cm</div>
+                </div>
+                <div class="status-card">
+                    <h3>최소 거리</h3>
+                    <div class="status-value" id="minDistance">--</div>
+                    <div class="status-unit">cm</div>
+                </div>
+                <div class="status-card">
+                    <h3>최대 거리</h3>
+                    <div class="status-value" id="maxDistance">--</div>
+                    <div class="status-unit">cm</div>
+                </div>
+                <div class="status-card">
+                    <h3>오류 횟수</h3>
+                    <div class="status-value" id="errorCount">0</div>
+                    <div class="status-unit">회</div>
+                </div>
+            </div>
+
+            <!-- 차트 -->
+            <div class="chart-container">
+                <h3>📊 실시간 거리 차트 (최근 20개)</h3>
+                <div class="chart" id="distanceChart"></div>
+            </div>
+
+            <!-- 로그 -->
+            <div class="log-container">
+                <h3>📝 측정 로그</h3>
+                <div id="logEntries"></div>
             </div>
         </div>
     </div>
 
-    <footer>
-        <p>📡 Pathfinder Ultrasonic Sensor v1.0 - Real-time WebSocket</p>
-    </footer>
-
     <script>
-        // WebSocket 연결 설정 강화
-        const socket = io({
-            transports: ['websocket', 'polling'],
-            upgrade: true,
-            rememberUpgrade: true,
-            timeout: 5000,
-            forceNew: true
-        });
-        
-        // DOM 요소들
-        const connectionStatus = document.getElementById('connection-status');
-        const measurementIndicator = document.getElementById('measurement-indicator');
-        const distanceValue = document.getElementById('distance-value');
-        const distanceStatus = document.getElementById('distance-status');
-        const distanceFill = document.getElementById('distance-fill');
-        const startBtn = document.getElementById('start-btn');
-        const stopBtn = document.getElementById('stop-btn');
-        const testBtn = document.getElementById('test-btn');
-        const clearBtn = document.getElementById('clear-btn');
-        const debugPanel = document.getElementById('debug-panel');
-        
-        // 통계 요소들
-        const minDistanceEl = document.getElementById('min-distance');
-        const maxDistanceEl = document.getElementById('max-distance');
-        const avgDistanceEl = document.getElementById('avg-distance');
-        const totalMeasurementsEl = document.getElementById('total-measurements');
-        const errorCountEl = document.getElementById('error-count');
-        const successRateEl = document.getElementById('success-rate');
-        
-        // 상태 변수
-        let isConnected = false;
-        let isMeasuring = false;
-        let chart = null;
-        let lastUpdateTime = 0;
-        let dataCount = 0;
-        
-        // Chart.js 설정
-        const chartConfig = {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: '거리 (cm)',
-                    data: [],
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 2,
-                    pointHoverRadius: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,  // 애니메이션 완전 비활성화
-                interaction: {
-                    intersect: false,
-                    mode: 'index'
-                },
-                scales: {
-                    x: {
-                        display: false
-                    },
-                    y: {
-                        beginAtZero: true,
-                        max: 400,
-                        title: {
-                            display: true,
-                            text: '거리 (cm)'
-                        }
+        class UltrasonicSensorApp {
+            constructor() {
+                this.isPolling = false;
+                this.pollingInterval = null;
+                this.chartData = [];
+                this.maxChartPoints = 20;
+                
+                this.initializeElements();
+                this.bindEvents();
+                this.updateUI();
+            }
+
+            initializeElements() {
+                // 버튼들
+                this.startBtn = document.getElementById('startBtn');
+                this.stopBtn = document.getElementById('stopBtn');
+                this.clearBtn = document.getElementById('clearBtn');
+                this.testBtn = document.getElementById('testBtn');
+                
+                // 상태 표시
+                this.statusIndicator = document.getElementById('statusIndicator');
+                this.pollingStatus = document.getElementById('pollingStatus');
+                this.intervalInput = document.getElementById('intervalInput');
+                
+                // 데이터 표시
+                this.currentDistance = document.getElementById('currentDistance');
+                this.measurementCount = document.getElementById('measurementCount');
+                this.avgDistance = document.getElementById('avgDistance');
+                this.minDistance = document.getElementById('minDistance');
+                this.maxDistance = document.getElementById('maxDistance');
+                this.errorCount = document.getElementById('errorCount');
+                
+                // 차트 및 로그
+                this.distanceChart = document.getElementById('distanceChart');
+                this.logEntries = document.getElementById('logEntries');
+            }
+
+            bindEvents() {
+                this.startBtn.addEventListener('click', () => this.startPolling());
+                this.stopBtn.addEventListener('click', () => this.stopPolling());
+                this.clearBtn.addEventListener('click', () => this.clearData());
+                this.testBtn.addEventListener('click', () => this.testSensor());
+                
+                this.intervalInput.addEventListener('change', () => {
+                    if (this.isPolling) {
+                        this.stopPolling();
+                        this.startPolling();
                     }
-                },
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                }
-            }
-        };
-        
-        // 차트 초기화
-        function initChart() {
-            const ctx = document.getElementById('distance-chart').getContext('2d');
-            chart = new Chart(ctx, chartConfig);
-            console.log('차트 초기화 완료');
-        }
-        
-        // WebSocket 이벤트 핸들러
-        socket.on('connect', function() {
-            isConnected = true;
-            connectionStatus.textContent = '🟢 연결됨';
-            connectionStatus.className = 'connection-status connected';
-            addDebugMessage('🔗 WebSocket 연결 성공');
-            console.log('✅ WebSocket 연결됨');
-            
-            // 연결 후 현재 상태 요청
-            socket.emit('get_status');
-        });
-        
-        socket.on('disconnect', function() {
-            isConnected = false;
-            connectionStatus.textContent = '🔴 연결 끊김';
-            connectionStatus.className = 'connection-status disconnected';
-            addDebugMessage('🔌 WebSocket 연결 끊김');
-            console.log('❌ WebSocket 연결 끊김');
-        });
-        
-        socket.on('connect_error', function(error) {
-            console.error('WebSocket 연결 오류:', error);
-            addDebugMessage('❌ 연결 오류: ' + error.message);
-        });
-        
-        socket.on('measurement_status', function(data) {
-            console.log('📊 측정 상태 수신:', data);
-            isMeasuring = data.is_measuring;
-            updateMeasurementStatus();
-            addDebugMessage(`📊 측정 상태: ${isMeasuring ? '실행 중' : '중지됨'}`);
-        });
-        
-        socket.on('measurement_data', function(data) {
-            const currentTime = Date.now();
-            dataCount++;
-            
-            console.log(`📏 측정 데이터 #${dataCount} 수신:`, data.distance, 'cm');
-            console.log('📈 데이터 간격:', currentTime - lastUpdateTime, 'ms');
-            
-            // 실시간 업데이트 강제 실행
-            try {
-                updateDistanceDisplay(data.distance, data.timestamp);
-                updateStatistics(data.stats);
-                updateChart(data.chart_data);
-                
-                // 화면 강제 새로고침
-                if (document.hidden) {
-                    document.title = `📡 거리: ${data.distance}cm`;
-                }
-                
-                addDebugMessage(`📊 데이터 #${dataCount}: ${data.distance}cm`);
-            } catch (error) {
-                console.error('데이터 업데이트 오류:', error);
-                addDebugMessage('❌ 데이터 업데이트 오류: ' + error.message);
-            }
-            
-            lastUpdateTime = currentTime;
-        });
-        
-        socket.on('distance_update', function(data) {
-            console.log('🎯 거리 업데이트 이벤트:', data.value, 'cm');
-            
-            // 간단한 거리 값만 업데이트
-            if (data.value !== null && data.value !== undefined) {
-                distanceValue.innerHTML = `${data.value}<span class="distance-unit">cm</span>`;
-                
-                // 거리 바 업데이트
-                const percentage = Math.min((data.value / 400) * 100, 100);
-                distanceFill.style.width = `${percentage}%`;
-                
-                // 시각적 효과
-                distanceValue.style.transform = 'scale(1.1)';
-                setTimeout(() => {
-                    distanceValue.style.transform = 'scale(1)';
-                }, 200);
-            }
-        });
-        
-        socket.on('debug_message', function(data) {
-            addDebugMessage('🐛 ' + data.message);
-            console.log('🐛 서버 디버그:', data.message);
-        });
-        
-        socket.on('test_result', function(data) {
-            addDebugMessage(`🧪 테스트 결과: ${data.results.join(', ')} cm`);
-            addDebugMessage(`📊 성공률: ${data.success_rate.toFixed(0)}%, 평균: ${data.avg_distance || 'N/A'} cm`);
-            console.log('🧪 테스트 결과:', data);
-        });
-        
-        socket.on('error_message', function(data) {
-            addDebugMessage('❌ ' + data.message);
-            console.error('❌ 서버 오류:', data.message);
-        });
-        
-        // 거리 표시 업데이트 (강화된 버전)
-        function updateDistanceDisplay(distance, timestamp) {
-            console.log('🎯 거리 표시 업데이트:', distance, timestamp);
-            
-            try {
-                if (distance !== null && distance !== undefined) {
-                    // 거리 값 업데이트 - 강제 DOM 조작
-                    const newDistanceHTML = `${distance}<span class="distance-unit">cm</span>`;
-                    distanceValue.innerHTML = newDistanceHTML;
-                    
-                    // 상태 텍스트 업데이트
-                    let statusText = `마지막 측정: ${timestamp}`;
-                    
-                    // 거리 바 업데이트 (0-400cm 범위)
-                    const percentage = Math.min((distance / 400) * 100, 100);
-                    distanceFill.style.width = `${percentage}%`;
-                    
-                    // 거리에 따른 상태 메시지와 색상
-                    if (distance < 10) {
-                        statusText += ' - 매우 가까움 ⚠️';
-                        distanceFill.style.background = '#ef4444';
-                        distanceValue.style.color = '#ef4444';
-                    } else if (distance < 50) {
-                        statusText += ' - 가까움';
-                        distanceFill.style.background = '#f59e0b';
-                        distanceValue.style.color = '#f59e0b';
-                    } else if (distance < 200) {
-                        statusText += ' - 보통';
-                        distanceFill.style.background = '#10b981';
-                        distanceValue.style.color = '#3b82f6';
-                    } else {
-                        statusText += ' - 멀음';
-                        distanceFill.style.background = '#3b82f6';
-                        distanceValue.style.color = '#3b82f6';
-                    }
-                    
-                    // 상태 텍스트 설정
-                    distanceStatus.textContent = statusText;
-                    
-                    // 강제 DOM 리플로우
-                    distanceValue.offsetHeight;
-                    distanceFill.offsetWidth;
-                    
-                    // 시각적 효과 추가
-                    distanceValue.style.transform = 'scale(1.05)';
-                    distanceValue.style.transition = 'all 0.1s ease';
-                    
-                    setTimeout(() => {
-                        distanceValue.style.transform = 'scale(1)';
-                    }, 100);
-                    
-                    // 페이지 제목도 업데이트
-                    document.title = `📡 ${distance}cm - Pathfinder Sensor`;
-                    
-                } else {
-                    distanceValue.innerHTML = `--.-<span class="distance-unit">cm</span>`;
-                    distanceStatus.textContent = '측정 실패';
-                    distanceFill.style.width = '0%';
-                    distanceFill.style.background = '#64748b';
-                    distanceValue.style.color = '#64748b';
-                    document.title = '📡 측정 실패 - Pathfinder Sensor';
-                }
-                
-                // 강제 화면 업데이트
-                if (typeof requestAnimationFrame !== 'undefined') {
-                    requestAnimationFrame(() => {
-                        // 다음 프레임에서 한 번 더 확인
-                        console.log('🔄 화면 업데이트 완료:', distanceValue.textContent);
-                    });
-                }
-                
-            } catch (error) {
-                console.error('거리 표시 업데이트 오류:', error);
-                addDebugMessage('❌ 거리 표시 오류: ' + error.message);
-            }
-        }
-        
-        // 통계 업데이트 (강화된 버전)
-        function updateStatistics(stats) {
-            console.log('📈 통계 업데이트:', stats);
-            
-            try {
-                minDistanceEl.textContent = stats.min_distance || '--';
-                maxDistanceEl.textContent = stats.max_distance || '--';
-                avgDistanceEl.textContent = stats.avg_distance || '--';
-                totalMeasurementsEl.textContent = stats.total_measurements || 0;
-                errorCountEl.textContent = stats.error_count || 0;
-                
-                // 성공률 계산
-                const total = (stats.total_measurements || 0) + (stats.error_count || 0);
-                const successRate = total > 0 ? ((stats.total_measurements || 0) / total * 100).toFixed(1) : 100;
-                successRateEl.textContent = `${successRate}%`;
-                
-                // 통계 카드 시각적 효과
-                [minDistanceEl, maxDistanceEl, avgDistanceEl, totalMeasurementsEl].forEach(el => {
-                    el.style.transform = 'scale(1.02)';
-                    setTimeout(() => {
-                        el.style.transform = 'scale(1)';
-                    }, 150);
                 });
+            }
+
+            async startPolling() {
+                if (this.isPolling) return;
                 
-            } catch (error) {
-                console.error('통계 업데이트 오류:', error);
+                this.isPolling = true;
+                this.updateUI();
+                
+                const interval = parseInt(this.intervalInput.value);
+                this.pollingInterval = setInterval(() => {
+                    this.fetchDistance();
+                }, interval);
+                
+                this.addLog('측정 시작됨', 'success');
+            }
+
+            stopPolling() {
+                if (!this.isPolling) return;
+                
+                this.isPolling = false;
+                if (this.pollingInterval) {
+                    clearInterval(this.pollingInterval);
+                    this.pollingInterval = null;
+                }
+                
+                this.updateUI();
+                this.addLog('측정 중지됨', 'success');
+            }
+
+            async fetchDistance() {
+                try {
+                    const response = await fetch('/api/distance');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.updateDisplay(data);
+                        this.updateChart(data.chart_data);
+                        
+                        if (data.distance !== null) {
+                            this.addLog(`거리: ${data.distance} cm (${data.timestamp})`);
+                        } else {
+                            this.addLog(`측정 실패 (${data.timestamp})`, 'error');
+                        }
+                    } else {
+                        this.addLog(`오류: ${data.error}`, 'error');
+                    }
+                } catch (error) {
+                    this.addLog(`네트워크 오류: ${error.message}`, 'error');
+                }
+            }
+
+            updateDisplay(data) {
+                // 현재 거리
+                this.currentDistance.textContent = data.distance !== null ? data.distance : '--';
+                
+                // 측정 횟수
+                this.measurementCount.textContent = data.count || 0;
+                
+                // 통계
+                const stats = data.stats;
+                this.avgDistance.textContent = stats.avg_distance !== null ? stats.avg_distance : '--';
+                this.minDistance.textContent = stats.min_distance !== null ? stats.min_distance : '--';
+                this.maxDistance.textContent = stats.max_distance !== null ? stats.max_distance : '--';
+                this.errorCount.textContent = stats.error_count || 0;
+            }
+
+            updateChart(chartData) {
+                this.chartData = chartData || [];
+                this.renderChart();
+            }
+
+            renderChart() {
+                this.distanceChart.innerHTML = '';
+                
+                if (this.chartData.length === 0) return;
+                
+                const maxDistance = Math.max(...this.chartData.map(d => d.distance || 0));
+                const chartWidth = this.distanceChart.clientWidth;
+                const chartHeight = this.distanceChart.clientHeight;
+                const barWidth = chartWidth / this.maxChartPoints;
+                
+                this.chartData.forEach((data, index) => {
+                    if (data.distance !== null) {
+                        const bar = document.createElement('div');
+                        bar.className = 'chart-bar';
+                        bar.style.left = `${index * barWidth}px`;
+                        bar.style.width = `${barWidth - 2}px`;
+                        bar.style.height = `${(data.distance / maxDistance) * chartHeight * 0.8}px`;
+                        bar.title = `${data.timestamp}: ${data.distance} cm`;
+                        
+                        this.distanceChart.appendChild(bar);
+                    }
+                });
+            }
+
+            async clearData() {
+                try {
+                    const response = await fetch('/api/clear');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.chartData = [];
+                        this.renderChart();
+                        this.updateDisplay({
+                            distance: null,
+                            count: 0,
+                            stats: {
+                                avg_distance: null,
+                                min_distance: null,
+                                max_distance: null,
+                                error_count: 0
+                            }
+                        });
+                        this.addLog('데이터 초기화됨', 'success');
+                    }
+                } catch (error) {
+                    this.addLog(`초기화 오류: ${error.message}`, 'error');
+                }
+            }
+
+            async testSensor() {
+                this.testBtn.disabled = true;
+                this.addLog('센서 테스트 시작...', 'success');
+                
+                try {
+                    const response = await fetch('/api/test');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.addLog(`테스트 완료: 성공률 ${data.success_rate}%`, 'success');
+                        if (data.avg_distance) {
+                            this.addLog(`평균 거리: ${data.avg_distance} cm`, 'success');
+                        }
+                    } else {
+                        this.addLog(`테스트 실패: ${data.message}`, 'error');
+                    }
+                } catch (error) {
+                    this.addLog(`테스트 오류: ${error.message}`, 'error');
+                } finally {
+                    this.testBtn.disabled = false;
+                }
+            }
+
+            updateUI() {
+                this.startBtn.disabled = this.isPolling;
+                this.stopBtn.disabled = !this.isPolling;
+                this.intervalInput.disabled = this.isPolling;
+                
+                if (this.isPolling) {
+                    this.statusIndicator.classList.remove('stopped');
+                    this.pollingStatus.textContent = `측정 중... (${this.intervalInput.value}ms 간격)`;
+                } else {
+                    this.statusIndicator.classList.add('stopped');
+                    this.pollingStatus.textContent = '대기 중...';
+                }
+            }
+
+            addLog(message, type = 'info') {
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry ${type}`;
+                logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                
+                this.logEntries.insertBefore(logEntry, this.logEntries.firstChild);
+                
+                // 로그 개수 제한 (최대 50개)
+                while (this.logEntries.children.length > 50) {
+                    this.logEntries.removeChild(this.logEntries.lastChild);
+                }
             }
         }
-        
-        // 차트 업데이트 (강화된 버전)
-        function updateChart(chartData) {
-            if (!chart || !chartData || !Array.isArray(chartData)) {
-                console.warn('차트 업데이트 건너뜀:', { chart: !!chart, chartData: !!chartData });
-                return;
-            }
-            
-            try {
-                console.log('📊 차트 업데이트:', chartData.length, '개 데이터');
-                
-                const labels = chartData.map(d => d.timestamp || '');
-                const distances = chartData.map(d => d.distance);
-                
-                chart.data.labels = labels;
-                chart.data.datasets[0].data = distances;
-                chart.update('none');  // 애니메이션 없이 즉시 업데이트
-                
-            } catch (error) {
-                console.error('차트 업데이트 오류:', error);
-            }
-        }
-        
-        // 측정 상태 업데이트
-        function updateMeasurementStatus() {
-            console.log('🔄 측정 상태 업데이트:', isMeasuring);
-            
-            if (isMeasuring) {
-                measurementIndicator.classList.add('active');
-                startBtn.disabled = true;
-                stopBtn.disabled = false;
-                startBtn.textContent = '⏸️ 측정 중...';
-                startBtn.style.backgroundColor = '#64748b';
-            } else {
-                measurementIndicator.classList.remove('active');
-                startBtn.disabled = false;
-                stopBtn.disabled = true;
-                startBtn.textContent = '▶️ 측정 시작';
-                startBtn.style.backgroundColor = '#10b981';
-            }
-        }
-        
-        // 디버그 메시지 추가
-        function addDebugMessage(message) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'debug-message new';
-            messageDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            debugPanel.appendChild(messageDiv);
-            debugPanel.scrollTop = debugPanel.scrollHeight;
-            
-            // 새 메시지 효과 제거
+
+        // 앱 초기화
+        document.addEventListener('DOMContentLoaded', () => {
+            new UltrasonicSensorApp();
+        });
+
+        // 차트 리사이즈 처리
+        window.addEventListener('resize', () => {
             setTimeout(() => {
-                messageDiv.classList.remove('new');
-            }, 1000);
-            
-            // 메시지 개수 제한 (최대 50개)
-            const messages = debugPanel.querySelectorAll('.debug-message');
-            if (messages.length > 50) {
-                messages[0].remove();
-            }
-        }
-        
-        // 버튼 이벤트 리스너
-        startBtn.addEventListener('click', function() {
-            console.log('측정 시작 버튼 클릭, 연결 상태:', isConnected, '측정 중:', isMeasuring);
-            
-            if (isConnected && !isMeasuring) {
-                // 즉시 UI 업데이트
-                this.disabled = true;
-                this.textContent = '🚀 시작 중...';
-                this.style.backgroundColor = '#64748b';
-                
-                addDebugMessage('📤 측정 시작 요청 전송 중...');
-                socket.emit('start_measurement');
-                
-                // 2초 후에도 상태가 안 바뀌면 강제 업데이트
-                setTimeout(() => {
-                    if (!isMeasuring) {
-                        console.warn('⚠️ 측정 시작 응답 지연, 상태 재요청');
-                        socket.emit('get_status');
-                    }
-                }, 2000);
-                
-            } else if (!isConnected) {
-                addDebugMessage('❌ 서버에 연결되지 않음');
-                // 재연결 시도
-                console.log('🔄 재연결 시도...');
-                socket.connect();
-            } else if (isMeasuring) {
-                addDebugMessage('⚠️ 이미 측정 중');
-            }
+                if (window.app) {
+                    window.app.renderChart();
+                }
+            }, 100);
         });
-        
-        stopBtn.addEventListener('click', function() {
-            console.log('측정 중지 버튼 클릭, 연결 상태:', isConnected, '측정 중:', isMeasuring);
-            
-            if (isConnected && isMeasuring) {
-                // 즉시 UI 업데이트
-                this.disabled = true;
-                this.textContent = '⏹️ 중지 중...';
-                
-                addDebugMessage('📤 측정 중지 요청 전송 중...');
-                socket.emit('stop_measurement');
-                
-                // 2초 후에도 상태가 안 바뀌면 강제 업데이트
-                setTimeout(() => {
-                    if (isMeasuring) {
-                        console.warn('⚠️ 측정 중지 응답 지연, 상태 재요청');
-                        socket.emit('get_status');
-                    }
-                }, 2000);
-                
-            } else if (!isConnected) {
-                addDebugMessage('❌ 서버에 연결되지 않음');
-            } else if (!isMeasuring) {
-                addDebugMessage('⚠️ 측정이 실행 중이 아님');
-            }
-        });
-        
-        testBtn.addEventListener('click', function() {
-            console.log('센서 테스트 버튼 클릭');
-            if (isConnected && !this.disabled) {
-                this.disabled = true;
-                this.textContent = '🔧 테스트 중...';
-                this.style.backgroundColor = '#64748b';
-                
-                addDebugMessage('📤 센서 테스트 요청 전송 중...');
-                socket.emit('test_sensor');
-                
-                setTimeout(() => {
-                    this.disabled = false;
-                    this.textContent = '🔧 센서 테스트';
-                    this.style.backgroundColor = '#3b82f6';
-                }, 3000);
-            } else if (!isConnected) {
-                addDebugMessage('❌ 서버에 연결되지 않음');
-            }
-        });
-        
-        clearBtn.addEventListener('click', function() {
-            console.log('데이터 초기화 버튼 클릭');
-            if (isConnected && confirm('모든 측정 데이터를 삭제하시겠습니까?')) {
-                this.disabled = true;
-                this.textContent = '🧹 초기화 중...';
-                this.style.backgroundColor = '#64748b';
-                
-                addDebugMessage('📤 데이터 초기화 요청 전송 중...');
-                socket.emit('clear_data');
-                
-                setTimeout(() => {
-                    this.disabled = false;
-                    this.textContent = '🧹 데이터 초기화';
-                    this.style.backgroundColor = '#f59e0b';
-                }, 1000);
-            } else if (!isConnected) {
-                addDebugMessage('❌ 서버에 연결되지 않음');
-            }
-        });
-        
-        // 페이지 로드 시 초기화
-        document.addEventListener('DOMContentLoaded', function() {
-            initChart();
-            addDebugMessage('📡 초음파 센서 인터페이스 로드됨');
-        });
-        
-        // 페이지 떠날 때 측정 중지
-        window.addEventListener('beforeunload', () => {
-            if (isMeasuring && isConnected) {
-                socket.emit('stop_measurement');
-            }
-        });
-        
-        // 연결 상태 모니터링
-        setInterval(function() {
-            if (!socket.connected) {
-                console.warn('⚠️ WebSocket 연결 끊김 감지');
-                isConnected = false;
-                connectionStatus.textContent = '🔴 연결 끊김';
-                connectionStatus.className = 'connection-status disconnected';
-            }
-        }, 1000);
     </script>
 </body>
 </html>

@@ -46,4 +46,9 @@ def video_feed():
     return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
+    print("🤖 패스파인더 카메라 스트리밍 서버 시작!")
+    import subprocess
+    ip = subprocess.check_output(['hostname', '-I'], shell=False).decode().split()[0]
+    print(f"🌐 브라우저에서 http://{ip}:5000 으로 접속하세요")
+    print("Ctrl+C로 종료")
     app.run(host='0.0.0.0', port=5000, debug=False)

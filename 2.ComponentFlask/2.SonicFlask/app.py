@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """
-Pathfinder Ultrasonic Sensor Real-time Flask Application
-실시간 초음파 센서 측정 및 데이터 시각화 시스템
+Pathfinder Ultrasonic Sensor Flask Application (Polling Version)
+폴링 방식 초음파 센서 측정 및 데이터 시각화 시스템
 """
 
-from flask import Flask, render_template, request
-from flask_socketio import SocketIO, emit
+from flask import Flask, render_template, jsonify
 import time
-import threading
 import json
 from datetime import datetime
 from collections import deque
@@ -25,8 +23,6 @@ except ImportError:
 
 # Flask 앱 설정
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'pathfinder_ultrasonic_2024'
-socketio = SocketIO(app, cors_allowed_origins="*")
 
 # 초음파 센서 설정
 TRIG = 5  # GPIO5 → 초음파 송신
@@ -35,13 +31,11 @@ ECHO = 6  # GPIO6 → 초음파 수신
 # 상수 정의
 SOUND_SPEED = 34300  # 음속 (cm/s)
 TRIGGER_PULSE = 0.00001  # 10µs 트리거 펄스
-MEASUREMENT_INTERVAL = 0.1  # 측정 간격 (100ms)
 TIMEOUT = 0.1  # 타임아웃 (100ms)
 
 # 데이터 저장용 변수
-measurement_data = deque(maxlen=100)  # 최근 100개 측정값
-is_measuring = False
-measurement_thread = None
+measurement_data = deque(maxlen=50)  # 최근 50개 측정값
+measurement_count = 0
 
 # 통계 데이터
 stats = {
@@ -74,7 +68,7 @@ def get_distance():
     """초음파 센서로 거리 측정"""
     if not GPIO_AVAILABLE:
         # 시뮬레이션 모드: 랜덤 거리 생성
-        if random.random() < 0.1:  # 10% 확률로 측정 실패
+        if random.random() < 0.05:  # 5% 확률로 측정 실패
             return None
         return round(random.uniform(5.0, 200.0), 1)
     
@@ -133,158 +127,80 @@ def update_statistics(distance):
     else:
         stats['error_count'] += 1
 
-def measurement_worker():
-    """백그라운드 측정 스레드"""
-    global is_measuring
-    
-    print("📡 측정 스레드 시작")
-    measurement_count = 0
-    
-    while is_measuring:
-        try:
-            measurement_count += 1
-            print(f"📊 측정 #{measurement_count} 시작...")
-            
-            # 거리 측정
-            distance = get_distance()
-            timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-            
-            print(f"📏 측정 결과: {distance} cm")
-            
-            # 데이터 저장
-            measurement_data.append({
-                'timestamp': timestamp,
-                'distance': distance,
-                'datetime': datetime.now().isoformat()
-            })
-            
-            # 통계 업데이트
-            update_statistics(distance)
-            
-            # 모든 클라이언트에게 실시간 데이터 브로드캐스트
-            try:
-                data_to_send = {
-                    'distance': distance,
-                    'timestamp': timestamp,
-                    'stats': stats.copy(),
-                    'chart_data': list(measurement_data)[-20:]  # 최근 20개 데이터
-                }
-                
-                # 모든 클라이언트에게 전송
-                socketio.emit('measurement_data', data_to_send)
-                print(f"📤 데이터 브로드캐스트 완료: {distance} cm")
-                
-                # 추가로 개별 이벤트도 전송
-                socketio.emit('distance_update', {
-                    'value': distance,
-                    'timestamp': timestamp
-                })
-                
-            except Exception as emit_error:
-                print(f"❌ 데이터 전송 오류: {emit_error}")
-            
-            # 측정 간격 대기
-            time.sleep(MEASUREMENT_INTERVAL)
-            
-        except Exception as e:
-            print(f"❌ 측정 스레드 오류: {e}")
-            try:
-                socketio.emit('error_message', {'message': f'측정 오류: {str(e)}'})
-            except:
-                pass
-            time.sleep(1)
-    
-    print("📡 측정 스레드 종료")
-
 @app.route('/')
 def index():
     """메인 페이지"""
     return render_template('index.html')
 
-@socketio.on('get_status')
-def handle_get_status():
-    """현재 상태 요청"""
-    print("📋 상태 요청 받음")
+@app.route('/api/distance')
+def get_distance_api():
+    """거리 측정 API (폴링용)"""
+    global measurement_count
     
-    # 현재 측정 상태 전송
-    emit('measurement_status', {'is_measuring': is_measuring})
-    
-    # 최근 데이터가 있으면 전송
-    if measurement_data:
-        emit('measurement_data', {
-            'distance': measurement_data[-1]['distance'] if measurement_data else None,
-            'timestamp': measurement_data[-1]['timestamp'] if measurement_data else None,
-            'stats': stats.copy(),
-            'chart_data': list(measurement_data)[-20:]
-        })
-    
-    emit('debug_message', {'message': f'현재 상태: {"측정 중" if is_measuring else "대기 중"}'})
-
-@socketio.on('connect')
-def handle_connect():
-    """클라이언트 연결"""
-    print(f"🔗 클라이언트 연결: {request.sid}")
-    emit('connection_status', {'status': 'connected'})
-    
-    # 현재 상태 자동 전송
-    emit('measurement_status', {'is_measuring': is_measuring})
-    if measurement_data:
-        emit('measurement_data', {
-            'distance': measurement_data[-1]['distance'] if measurement_data else None,
-            'timestamp': measurement_data[-1]['timestamp'] if measurement_data else None,
-            'stats': stats.copy(),
-            'chart_data': list(measurement_data)[-20:]
-        })
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    """클라이언트 연결 해제"""
-    print(f"🔌 클라이언트 연결 해제: {request.sid}")
-
-@socketio.on('start_measurement')
-def handle_start_measurement():
-    """측정 시작"""
-    global is_measuring, measurement_thread
-    
-    print("🎯 측정 시작 요청 받음")
-    
-    if not is_measuring:
-        is_measuring = True
-        print("🚀 새 측정 스레드 생성 중...")
+    try:
+        # 거리 측정
+        distance = get_distance()
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        measurement_count += 1
         
-        measurement_thread = threading.Thread(target=measurement_worker)
-        measurement_thread.daemon = True
-        measurement_thread.start()
+        # 데이터 저장
+        measurement_data.append({
+            'timestamp': timestamp,
+            'distance': distance,
+            'datetime': datetime.now().isoformat(),
+            'count': measurement_count
+        })
         
-        emit('measurement_status', {'is_measuring': True})
-        emit('debug_message', {'message': '측정 시작됨'})
-        print("▶️ 측정 시작 완료")
-    else:
-        print("⚠️ 이미 측정 중")
-        emit('debug_message', {'message': '이미 측정 중입니다'})
+        # 통계 업데이트
+        update_statistics(distance)
+        
+        # 응답 데이터 구성
+        response_data = {
+            'success': True,
+            'distance': distance,
+            'timestamp': timestamp,
+            'count': measurement_count,
+            'stats': stats.copy(),
+            'chart_data': list(measurement_data)[-20:]  # 최근 20개 데이터
+        }
+        
+        print(f"📏 측정 #{measurement_count}: {distance} cm")
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"❌ 측정 오류: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().strftime('%H:%M:%S')
+        })
 
-@socketio.on('stop_measurement')
-def handle_stop_measurement():
-    """측정 중지"""
-    global is_measuring
-    
-    print("🛑 측정 중지 요청 받음")
-    
-    if is_measuring:
-        is_measuring = False
-        emit('measurement_status', {'is_measuring': False})
-        emit('debug_message', {'message': '측정 중지됨'})
-        print("⏹️ 측정 중지 완료")
-    else:
-        print("⚠️ 측정이 실행 중이 아님")
-        emit('debug_message', {'message': '측정이 실행 중이 아닙니다'})
+@app.route('/api/stats')
+def get_stats():
+    """통계 데이터 API"""
+    return jsonify({
+        'success': True,
+        'stats': stats.copy(),
+        'data_count': len(measurement_data),
+        'recent_data': list(measurement_data)[-10:]  # 최근 10개
+    })
 
-@socketio.on('clear_data')
-def handle_clear_data():
-    """데이터 초기화"""
-    global stats
+@app.route('/api/history')
+def get_history():
+    """전체 측정 기록 API"""
+    return jsonify({
+        'success': True,
+        'data': list(measurement_data),
+        'total_count': len(measurement_data)
+    })
+
+@app.route('/api/clear')
+def clear_data():
+    """데이터 초기화 API"""
+    global stats, measurement_count
     
     measurement_data.clear()
+    measurement_count = 0
     stats = {
         'min_distance': None,
         'max_distance': None,
@@ -293,29 +209,16 @@ def handle_clear_data():
         'error_count': 0
     }
     
-    emit('measurement_data', {
-        'distance': None,
-        'timestamp': None,
-        'stats': stats.copy(),
-        'chart_data': []
-    })
-    emit('debug_message', {'message': '데이터 초기화됨'})
     print("🧹 데이터 초기화")
-
-@socketio.on('get_history')
-def handle_get_history():
-    """전체 측정 기록 요청"""
-    emit('history_data', {
-        'data': list(measurement_data),
-        'total_count': len(measurement_data)
+    return jsonify({
+        'success': True,
+        'message': '데이터가 초기화되었습니다.',
+        'timestamp': datetime.now().strftime('%H:%M:%S')
     })
 
-@socketio.on('test_sensor')
-def handle_test_sensor():
-    """센서 테스트"""
-    emit('debug_message', {'message': '센서 테스트 시작...'})
-    print("🧪 센서 테스트 시작")
-    
+@app.route('/api/test')
+def test_sensor():
+    """센서 테스트 API"""
     try:
         # 5회 연속 측정
         test_results = []
@@ -329,25 +232,24 @@ def handle_test_sensor():
         valid_results = [d for d in test_results if d is not None]
         success_rate = len(valid_results) / len(test_results) * 100
         
-        emit('test_result', {
-            'results': test_results,
+        return jsonify({
+            'success': True,
+            'test_results': test_results,
             'success_rate': success_rate,
-            'avg_distance': round(statistics.mean(valid_results), 1) if valid_results else None
+            'avg_distance': round(statistics.mean(valid_results), 1) if valid_results else None,
+            'message': f'센서 테스트 완료 (성공률: {success_rate:.0f}%)'
         })
         
-        if success_rate >= 80:
-            emit('debug_message', {'message': f'✅ 센서 테스트 성공 (성공률: {success_rate:.0f}%)'})
-        else:
-            emit('debug_message', {'message': f'⚠️ 센서 테스트 불안정 (성공률: {success_rate:.0f}%)'})
-            
     except Exception as e:
-        emit('debug_message', {'message': f'❌ 센서 테스트 실패: {str(e)}'})
         print(f"❌ 센서 테스트 오류: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': '센서 테스트 실패'
+        })
 
 def cleanup():
     """정리 작업"""
-    global is_measuring
-    is_measuring = False
     if GPIO_AVAILABLE:
         try:
             GPIO.cleanup()
@@ -358,8 +260,8 @@ def cleanup():
 if __name__ == '__main__':
     try:
         if setup_gpio():
-            print("🚀 패스파인더 초음파 센서 서버 시작")
-            print("📡 실시간 거리 측정 및 데이터 시각화 시스템")
+            print("🚀 패스파인더 초음파 센서 서버 시작 (폴링 모드)")
+            print("📡 HTTP 폴링 방식 거리 측정 시스템")
             if GPIO_AVAILABLE:
                 print("🔧 하드웨어 모드: 실제 센서 사용")
             else:
@@ -367,7 +269,7 @@ if __name__ == '__main__':
             print("🌐 웹 브라우저에서 http://라즈베리파이IP:5000 접속")
             print("-" * 50)
             
-            socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+            app.run(host='0.0.0.0', port=5000, debug=True)
         else:
             print("❌ GPIO 설정 실패로 서버를 시작할 수 없습니다")
         
@@ -376,4 +278,4 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"❌ 서버 오류: {e}")
     finally:
-        cleanup() 
+        cleanup()
