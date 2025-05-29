@@ -106,6 +106,7 @@
             color: var(--primary);
             margin-bottom: 0.5rem;
             font-family: 'Courier New', monospace;
+            transition: all 0.2s ease;
         }
 
         .distance-unit {
@@ -118,6 +119,7 @@
             font-size: 1rem;
             color: var(--secondary);
             margin-top: 0.5rem;
+            transition: color 0.3s ease;
         }
 
         .control-buttons {
@@ -199,6 +201,7 @@
             padding: 1rem;
             border-radius: 0.5rem;
             text-align: center;
+            transition: all 0.2s ease;
         }
 
         .stat-value {
@@ -206,6 +209,7 @@
             font-weight: bold;
             color: var(--primary);
             margin-bottom: 0.25rem;
+            transition: all 0.2s ease;
         }
 
         .stat-label {
@@ -234,6 +238,7 @@
         .debug-message {
             margin-bottom: 0.25rem;
             opacity: 0.8;
+            transition: opacity 0.3s ease;
         }
 
         .debug-message.new {
@@ -248,6 +253,7 @@
             border-radius: 50%;
             margin-right: 0.5rem;
             background-color: var(--secondary);
+            transition: all 0.3s ease;
         }
 
         .measurement-indicator.active {
@@ -273,7 +279,7 @@
         .distance-fill {
             height: 100%;
             background: linear-gradient(90deg, var(--success), var(--warning), var(--danger));
-            transition: width 0.3s ease;
+            transition: all 0.3s ease;
             border-radius: 10px;
         }
 
@@ -398,8 +404,14 @@
     </footer>
 
     <script>
-        // WebSocket 연결
-        const socket = io();
+        // WebSocket 연결 설정 강화
+        const socket = io({
+            transports: ['websocket', 'polling'],
+            upgrade: true,
+            rememberUpgrade: true,
+            timeout: 5000,
+            forceNew: true
+        });
         
         // DOM 요소들
         const connectionStatus = document.getElementById('connection-status');
@@ -425,6 +437,8 @@
         let isConnected = false;
         let isMeasuring = false;
         let chart = null;
+        let lastUpdateTime = 0;
+        let dataCount = 0;
         
         // Chart.js 설정
         const chartConfig = {
@@ -439,15 +453,17 @@
                     borderWidth: 2,
                     fill: true,
                     tension: 0.4,
-                    pointRadius: 3,
-                    pointHoverRadius: 5
+                    pointRadius: 2,
+                    pointHoverRadius: 4
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                animation: {
-                    duration: 0
+                animation: false,  // 애니메이션 완전 비활성화
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
                 },
                 scales: {
                     x: {
@@ -474,6 +490,7 @@
         function initChart() {
             const ctx = document.getElementById('distance-chart').getContext('2d');
             chart = new Chart(ctx, chartConfig);
+            console.log('차트 초기화 완료');
         }
         
         // WebSocket 이벤트 핸들러
@@ -482,7 +499,10 @@
             connectionStatus.textContent = '🟢 연결됨';
             connectionStatus.className = 'connection-status connected';
             addDebugMessage('🔗 WebSocket 연결 성공');
-            console.log('WebSocket 연결됨');
+            console.log('✅ WebSocket 연결됨');
+            
+            // 연결 후 현재 상태 요청
+            socket.emit('get_status');
         });
         
         socket.on('disconnect', function() {
@@ -490,103 +510,177 @@
             connectionStatus.textContent = '🔴 연결 끊김';
             connectionStatus.className = 'connection-status disconnected';
             addDebugMessage('🔌 WebSocket 연결 끊김');
-            console.log('WebSocket 연결 끊김');
+            console.log('❌ WebSocket 연결 끊김');
+        });
+        
+        socket.on('connect_error', function(error) {
+            console.error('WebSocket 연결 오류:', error);
+            addDebugMessage('❌ 연결 오류: ' + error.message);
         });
         
         socket.on('measurement_status', function(data) {
+            console.log('📊 측정 상태 수신:', data);
             isMeasuring = data.is_measuring;
             updateMeasurementStatus();
-            console.log('측정 상태 업데이트:', data.is_measuring);
+            addDebugMessage(`📊 측정 상태: ${isMeasuring ? '실행 중' : '중지됨'}`);
         });
         
         socket.on('measurement_data', function(data) {
-            updateDistanceDisplay(data.distance, data.timestamp);
-            updateStatistics(data.stats);
-            updateChart(data.chart_data);
-            console.log('측정 데이터 수신:', data.distance, 'cm');
+            const currentTime = Date.now();
+            dataCount++;
+            
+            console.log(`📏 측정 데이터 #${dataCount} 수신:`, data.distance, 'cm');
+            console.log('📈 데이터 간격:', currentTime - lastUpdateTime, 'ms');
+            
+            // 실시간 업데이트 강제 실행
+            try {
+                updateDistanceDisplay(data.distance, data.timestamp);
+                updateStatistics(data.stats);
+                updateChart(data.chart_data);
+                
+                // 화면 강제 새로고침
+                if (document.hidden) {
+                    document.title = `📡 거리: ${data.distance}cm`;
+                }
+                
+                addDebugMessage(`📊 데이터 #${dataCount}: ${data.distance}cm`);
+            } catch (error) {
+                console.error('데이터 업데이트 오류:', error);
+                addDebugMessage('❌ 데이터 업데이트 오류: ' + error.message);
+            }
+            
+            lastUpdateTime = currentTime;
         });
         
         socket.on('debug_message', function(data) {
             addDebugMessage('🐛 ' + data.message);
-            console.log('디버그:', data.message);
+            console.log('🐛 서버 디버그:', data.message);
         });
         
         socket.on('test_result', function(data) {
             addDebugMessage(`🧪 테스트 결과: ${data.results.join(', ')} cm`);
             addDebugMessage(`📊 성공률: ${data.success_rate.toFixed(0)}%, 평균: ${data.avg_distance || 'N/A'} cm`);
-            console.log('테스트 결과:', data);
+            console.log('🧪 테스트 결과:', data);
         });
         
         socket.on('error_message', function(data) {
             addDebugMessage('❌ ' + data.message);
-            console.error('오류:', data.message);
+            console.error('❌ 서버 오류:', data.message);
         });
         
-        // 거리 표시 업데이트
+        // 거리 표시 업데이트 (강화된 버전)
         function updateDistanceDisplay(distance, timestamp) {
-            if (distance !== null) {
-                distanceValue.innerHTML = `${distance}<span class="distance-unit">cm</span>`;
-                distanceStatus.textContent = `마지막 측정: ${timestamp}`;
-                
-                // 거리 바 업데이트 (0-400cm 범위)
-                const percentage = Math.min((distance / 400) * 100, 100);
-                distanceFill.style.width = `${percentage}%`;
-                
-                // 거리에 따른 상태 메시지
-                if (distance < 10) {
-                    distanceStatus.textContent += ' - 매우 가까움 ⚠️';
-                } else if (distance < 50) {
-                    distanceStatus.textContent += ' - 가까움';
-                } else if (distance < 200) {
-                    distanceStatus.textContent += ' - 보통';
+            console.log('🎯 거리 표시 업데이트:', distance, timestamp);
+            
+            try {
+                if (distance !== null && distance !== undefined) {
+                    // 거리 값 업데이트
+                    distanceValue.innerHTML = `${distance}<span class="distance-unit">cm</span>`;
+                    distanceStatus.textContent = `마지막 측정: ${timestamp}`;
+                    
+                    // 거리 바 업데이트 (0-400cm 범위)
+                    const percentage = Math.min((distance / 400) * 100, 100);
+                    distanceFill.style.width = `${percentage}%`;
+                    
+                    // 거리에 따른 상태 메시지
+                    if (distance < 10) {
+                        distanceStatus.textContent += ' - 매우 가까움 ⚠️';
+                        distanceFill.style.backgroundColor = '#ef4444';
+                    } else if (distance < 50) {
+                        distanceStatus.textContent += ' - 가까움';
+                        distanceFill.style.backgroundColor = '#f59e0b';
+                    } else if (distance < 200) {
+                        distanceStatus.textContent += ' - 보통';
+                        distanceFill.style.backgroundColor = '#10b981';
+                    } else {
+                        distanceStatus.textContent += ' - 멀음';
+                        distanceFill.style.backgroundColor = '#3b82f6';
+                    }
+                    
+                    // 시각적 효과 추가
+                    distanceValue.style.transform = 'scale(1.05)';
+                    setTimeout(() => {
+                        distanceValue.style.transform = 'scale(1)';
+                    }, 100);
+                    
                 } else {
-                    distanceStatus.textContent += ' - 멀음';
+                    distanceValue.innerHTML = `--.-<span class="distance-unit">cm</span>`;
+                    distanceStatus.textContent = '측정 실패';
+                    distanceFill.style.width = '0%';
+                    distanceFill.style.backgroundColor = '#64748b';
                 }
-            } else {
-                distanceValue.innerHTML = `--.-<span class="distance-unit">cm</span>`;
-                distanceStatus.textContent = '측정 실패';
-                distanceFill.style.width = '0%';
+            } catch (error) {
+                console.error('거리 표시 업데이트 오류:', error);
             }
         }
         
-        // 통계 업데이트
+        // 통계 업데이트 (강화된 버전)
         function updateStatistics(stats) {
-            minDistanceEl.textContent = stats.min_distance || '--';
-            maxDistanceEl.textContent = stats.max_distance || '--';
-            avgDistanceEl.textContent = stats.avg_distance || '--';
-            totalMeasurementsEl.textContent = stats.total_measurements;
-            errorCountEl.textContent = stats.error_count;
+            console.log('📈 통계 업데이트:', stats);
             
-            // 성공률 계산
-            const total = stats.total_measurements + stats.error_count;
-            const successRate = total > 0 ? (stats.total_measurements / total * 100).toFixed(1) : 100;
-            successRateEl.textContent = `${successRate}%`;
+            try {
+                minDistanceEl.textContent = stats.min_distance || '--';
+                maxDistanceEl.textContent = stats.max_distance || '--';
+                avgDistanceEl.textContent = stats.avg_distance || '--';
+                totalMeasurementsEl.textContent = stats.total_measurements || 0;
+                errorCountEl.textContent = stats.error_count || 0;
+                
+                // 성공률 계산
+                const total = (stats.total_measurements || 0) + (stats.error_count || 0);
+                const successRate = total > 0 ? ((stats.total_measurements || 0) / total * 100).toFixed(1) : 100;
+                successRateEl.textContent = `${successRate}%`;
+                
+                // 통계 카드 시각적 효과
+                [minDistanceEl, maxDistanceEl, avgDistanceEl, totalMeasurementsEl].forEach(el => {
+                    el.style.transform = 'scale(1.02)';
+                    setTimeout(() => {
+                        el.style.transform = 'scale(1)';
+                    }, 150);
+                });
+                
+            } catch (error) {
+                console.error('통계 업데이트 오류:', error);
+            }
         }
         
-        // 차트 업데이트
+        // 차트 업데이트 (강화된 버전)
         function updateChart(chartData) {
-            if (!chart || !chartData) return;
+            if (!chart || !chartData || !Array.isArray(chartData)) {
+                console.warn('차트 업데이트 건너뜀:', { chart: !!chart, chartData: !!chartData });
+                return;
+            }
             
-            const labels = chartData.map(d => d.timestamp);
-            const distances = chartData.map(d => d.distance);
-            
-            chart.data.labels = labels;
-            chart.data.datasets[0].data = distances;
-            chart.update('none');
+            try {
+                console.log('📊 차트 업데이트:', chartData.length, '개 데이터');
+                
+                const labels = chartData.map(d => d.timestamp || '');
+                const distances = chartData.map(d => d.distance);
+                
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = distances;
+                chart.update('none');  // 애니메이션 없이 즉시 업데이트
+                
+            } catch (error) {
+                console.error('차트 업데이트 오류:', error);
+            }
         }
         
         // 측정 상태 업데이트
         function updateMeasurementStatus() {
+            console.log('🔄 측정 상태 업데이트:', isMeasuring);
+            
             if (isMeasuring) {
                 measurementIndicator.classList.add('active');
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
                 startBtn.textContent = '⏸️ 측정 중...';
+                startBtn.style.backgroundColor = '#64748b';
             } else {
                 measurementIndicator.classList.remove('active');
                 startBtn.disabled = false;
                 stopBtn.disabled = true;
                 startBtn.textContent = '▶️ 측정 시작';
+                startBtn.style.backgroundColor = '#10b981';
             }
         }
         

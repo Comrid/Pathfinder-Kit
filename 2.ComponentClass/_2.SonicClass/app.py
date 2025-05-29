@@ -191,13 +191,32 @@ def index():
     """메인 페이지"""
     return render_template('index.html')
 
+@socketio.on('get_status')
+def handle_get_status():
+    """현재 상태 요청"""
+    print("📋 상태 요청 받음")
+    
+    # 현재 측정 상태 전송
+    emit('measurement_status', {'is_measuring': is_measuring})
+    
+    # 최근 데이터가 있으면 전송
+    if measurement_data:
+        emit('measurement_data', {
+            'distance': measurement_data[-1]['distance'] if measurement_data else None,
+            'timestamp': measurement_data[-1]['timestamp'] if measurement_data else None,
+            'stats': stats.copy(),
+            'chart_data': list(measurement_data)[-20:]
+        })
+    
+    emit('debug_message', {'message': f'현재 상태: {"측정 중" if is_measuring else "대기 중"}'})
+
 @socketio.on('connect')
 def handle_connect():
     """클라이언트 연결"""
     print(f"🔗 클라이언트 연결: {request.sid}")
     emit('connection_status', {'status': 'connected'})
     
-    # 현재 상태 전송
+    # 현재 상태 자동 전송
     emit('measurement_status', {'is_measuring': is_measuring})
     if measurement_data:
         emit('measurement_data', {
