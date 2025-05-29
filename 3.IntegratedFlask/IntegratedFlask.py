@@ -91,17 +91,7 @@ ultrasonic_stats = {
 # =============================================================================
 
 picam2 = None
-if CAMERA_AVAILABLE:
-    try:
-        picam2 = Picamera2()
-        picam2.preview_configuration.main.size = (640, 480)
-        picam2.preview_configuration.main.format = "RGB888"
-        picam2.configure("preview")
-        picam2.start()
-        print("📷 카메라 초기화 완료")
-    except Exception as e:
-        print(f"❌ 카메라 초기화 실패: {e}")
-        CAMERA_AVAILABLE = False
+# 카메라 초기화는 GPIO 설정 후에 실행
 
 # =============================================================================
 # GPIO 초기화
@@ -109,6 +99,8 @@ if CAMERA_AVAILABLE:
 
 def setup_gpio():
     """GPIO 초기 설정"""
+    global picam2
+    
     if GPIO_AVAILABLE:
         try:
             GPIO.setwarnings(False)
@@ -136,13 +128,28 @@ def setup_gpio():
             pwm_left.start(0)
             
             print("🔧 GPIO 설정 완료")
-            return True
+            
         except Exception as e:
             print(f"❌ GPIO 설정 실패: {e}")
             return False
     else:
         print("🔧 시뮬레이션 모드 - GPIO 설정 건너뜀")
-        return True
+    
+    # GPIO 설정 후 카메라 초기화
+    if CAMERA_AVAILABLE:
+        try:
+            picam2 = Picamera2()
+            picam2.preview_configuration.main.size = (640, 480)
+            picam2.preview_configuration.main.format = "RGB888"
+            picam2.configure("preview")
+            picam2.start()
+            print("📷 카메라 초기화 완료")
+        except Exception as e:
+            print(f"❌ 카메라 초기화 실패: {e}")
+            global CAMERA_AVAILABLE
+            CAMERA_AVAILABLE = False
+    
+    return True
 
 # =============================================================================
 # 모터 제어 함수들
@@ -161,6 +168,8 @@ def stop_motors():
         except RuntimeError as e:
             if "pin numbering mode" not in str(e):
                 raise e
+    else:
+        print("🎮 시뮬레이션: 모터 정지")
 
 def set_motor_direction(right_forward, left_forward):
     """모터 방향 설정"""
@@ -178,12 +187,18 @@ def set_motor_direction(right_forward, left_forward):
         else:
             GPIO.output(IN3, GPIO.LOW)
             GPIO.output(IN4, GPIO.HIGH)
+    else:
+        right_dir = "전진" if right_forward else "후진"
+        left_dir = "전진" if left_forward else "후진"
+        print(f"🎮 시뮬레이션: 모터 방향 - 오른쪽: {right_dir}, 왼쪽: {left_dir}")
 
 def set_motor_speed(right_speed, left_speed):
     """모터 속도 설정"""
     if GPIO_AVAILABLE:
         pwm_right.ChangeDutyCycle(right_speed)
         pwm_left.ChangeDutyCycle(left_speed)
+    else:
+        print(f"🎮 시뮬레이션: 모터 속도 - 오른쪽: {right_speed}%, 왼쪽: {left_speed}%")
 
 def move_forward(speed=MOTOR_SPEED_NORMAL):
     set_motor_direction(True, True)
@@ -331,13 +346,15 @@ def motor_control_thread():
     last_command = "stop"
     last_speed = 100
     
+    print("🚗 모터 제어 스레드 시작")
+    
     while motor_running:
         with command_lock:
             cmd = current_command
             spd = motor_speed
         
         if cmd != last_command or spd != last_speed:
-            print(f"🚗 모터 명령: {cmd}, 속도: {spd}")
+            print(f"🚗 모터 명령 실행: {cmd}, 속도: {spd}%")
             
             # 실시간 상태 업데이트
             socketio.emit('motor_status', {
@@ -364,11 +381,15 @@ def motor_control_thread():
                 move_backward_right(spd)
             elif cmd == "stop":
                 stop_motors()
+            else:
+                print(f"⚠️ 알 수 없는 모터 명령: {cmd}")
             
             last_command = cmd
             last_speed = spd
         
         time.sleep(0.01)
+    
+    print("🚗 모터 제어 스레드 종료")
 
 # =============================================================================
 # Flask 라우트
@@ -475,6 +496,7 @@ def handle_connect():
         'camera_available': CAMERA_AVAILABLE,
         'motor_running': motor_running
     })
+    print(f"📊 시스템 상태 전송: GPIO={GPIO_AVAILABLE}, Camera={CAMERA_AVAILABLE}, Motor={motor_running}")
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -487,7 +509,7 @@ def handle_motor_command(data):
     global current_command
     
     command = data.get('command', 'stop')
-    print(f"🎮 모터 명령 수신: {command}")
+    print(f"🎮 모터 명령 수신: {command} (클라이언트: {request.sid})")
     
     with command_lock:
         current_command = command
@@ -496,6 +518,7 @@ def handle_motor_command(data):
         'command': command,
         'timestamp': time.time()
     })
+    print(f"✅ 모터 명령 확인 응답 전송: {command}")
 
 @socketio.on('speed_change')
 def handle_speed_change(data):
@@ -508,7 +531,7 @@ def handle_speed_change(data):
     with command_lock:
         motor_speed = speed
     
-    print(f"⚡ 모터 속도 변경: {speed}%")
+    print(f"⚡ 모터 속도 변경: {speed}% (클라이언트: {request.sid})")
     emit('speed_changed', {
         'speed': speed,
         'timestamp': time.time()
@@ -519,7 +542,7 @@ def handle_emergency_stop():
     """비상 정지"""
     global current_command
     
-    print("🚨 비상 정지 명령 수신")
+    print(f"🚨 비상 정지 명령 수신 (클라이언트: {request.sid})")
     
     with command_lock:
         current_command = "stop"
@@ -529,6 +552,7 @@ def handle_emergency_stop():
     emit('emergency_stop_executed', {
         'timestamp': time.time()
     })
+    print("🚨 비상 정지 실행 완료")
 
 # =============================================================================
 # 정리 및 시작
