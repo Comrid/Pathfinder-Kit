@@ -6,13 +6,22 @@ Pathfinder Ultrasonic Sensor Real-time Flask Application
 
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
-import RPi.GPIO as GPIO
 import time
 import threading
 import json
 from datetime import datetime
 from collections import deque
 import statistics
+import random
+
+# GPIO 모듈 가용성 확인
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+    print("🔧 RPi.GPIO 모듈 로드됨")
+except ImportError:
+    GPIO_AVAILABLE = False
+    print("⚠️ RPi.GPIO 모듈 없음 - 시뮬레이션 모드로 실행")
 
 # Flask 앱 설정
 app = Flask(__name__)
@@ -45,15 +54,30 @@ stats = {
 
 def setup_gpio():
     """GPIO 초기 설정"""
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
-    GPIO.setup(TRIG, GPIO.OUT)
-    GPIO.setup(ECHO, GPIO.IN)
-    GPIO.output(TRIG, False)
-    print("🔧 GPIO 설정 완료")
+    if GPIO_AVAILABLE:
+        try:
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setwarnings(False)
+            GPIO.setup(TRIG, GPIO.OUT)
+            GPIO.setup(ECHO, GPIO.IN)
+            GPIO.output(TRIG, False)
+            print("🔧 GPIO 설정 완료")
+            return True
+        except Exception as e:
+            print(f"❌ GPIO 설정 실패: {e}")
+            return False
+    else:
+        print("🔧 시뮬레이션 모드 - GPIO 설정 건너뜀")
+        return True
 
 def get_distance():
     """초음파 센서로 거리 측정"""
+    if not GPIO_AVAILABLE:
+        # 시뮬레이션 모드: 랜덤 거리 생성
+        if random.random() < 0.1:  # 10% 확률로 측정 실패
+            return None
+        return round(random.uniform(5.0, 200.0), 1)
+    
     try:
         # TRIG 신호 발생
         GPIO.output(TRIG, True)
@@ -114,12 +138,18 @@ def measurement_worker():
     global is_measuring
     
     print("📡 측정 스레드 시작")
+    measurement_count = 0
     
     while is_measuring:
         try:
+            measurement_count += 1
+            print(f"📊 측정 #{measurement_count} 시작...")
+            
             # 거리 측정
             distance = get_distance()
             timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            
+            print(f"📏 측정 결과: {distance} cm")
             
             # 데이터 저장
             measurement_data.append({
@@ -132,18 +162,26 @@ def measurement_worker():
             update_statistics(distance)
             
             # 클라이언트에 실시간 데이터 전송
-            socketio.emit('measurement_data', {
-                'distance': distance,
-                'timestamp': timestamp,
-                'stats': stats.copy(),
-                'chart_data': list(measurement_data)[-20:]  # 최근 20개 데이터
-            })
+            try:
+                socketio.emit('measurement_data', {
+                    'distance': distance,
+                    'timestamp': timestamp,
+                    'stats': stats.copy(),
+                    'chart_data': list(measurement_data)[-20:]  # 최근 20개 데이터
+                })
+                print(f"📤 데이터 전송 완료: {distance} cm")
+            except Exception as emit_error:
+                print(f"❌ 데이터 전송 오류: {emit_error}")
             
+            # 측정 간격 대기
             time.sleep(MEASUREMENT_INTERVAL)
             
         except Exception as e:
-            print(f"측정 스레드 오류: {e}")
-            socketio.emit('error_message', {'message': f'측정 오류: {str(e)}'})
+            print(f"❌ 측정 스레드 오류: {e}")
+            try:
+                socketio.emit('error_message', {'message': f'측정 오류: {str(e)}'})
+            except:
+                pass
             time.sleep(1)
     
     print("📡 측정 스레드 종료")
@@ -179,26 +217,38 @@ def handle_start_measurement():
     """측정 시작"""
     global is_measuring, measurement_thread
     
+    print("🎯 측정 시작 요청 받음")
+    
     if not is_measuring:
         is_measuring = True
+        print("🚀 새 측정 스레드 생성 중...")
+        
         measurement_thread = threading.Thread(target=measurement_worker)
         measurement_thread.daemon = True
         measurement_thread.start()
         
         emit('measurement_status', {'is_measuring': True})
         emit('debug_message', {'message': '측정 시작됨'})
-        print("▶️ 측정 시작")
+        print("▶️ 측정 시작 완료")
+    else:
+        print("⚠️ 이미 측정 중")
+        emit('debug_message', {'message': '이미 측정 중입니다'})
 
 @socketio.on('stop_measurement')
 def handle_stop_measurement():
     """측정 중지"""
     global is_measuring
     
+    print("🛑 측정 중지 요청 받음")
+    
     if is_measuring:
         is_measuring = False
         emit('measurement_status', {'is_measuring': False})
         emit('debug_message', {'message': '측정 중지됨'})
-        print("⏹️ 측정 중지")
+        print("⏹️ 측정 중지 완료")
+    else:
+        print("⚠️ 측정이 실행 중이 아님")
+        emit('debug_message', {'message': '측정이 실행 중이 아닙니다'})
 
 @socketio.on('clear_data')
 def handle_clear_data():
@@ -235,6 +285,7 @@ def handle_get_history():
 def handle_test_sensor():
     """센서 테스트"""
     emit('debug_message', {'message': '센서 테스트 시작...'})
+    print("🧪 센서 테스트 시작")
     
     try:
         # 5회 연속 측정
@@ -242,6 +293,7 @@ def handle_test_sensor():
         for i in range(5):
             distance = get_distance()
             test_results.append(distance)
+            print(f"테스트 {i+1}: {distance} cm")
             time.sleep(0.2)
         
         # 테스트 결과 분석
@@ -261,26 +313,34 @@ def handle_test_sensor():
             
     except Exception as e:
         emit('debug_message', {'message': f'❌ 센서 테스트 실패: {str(e)}'})
+        print(f"❌ 센서 테스트 오류: {e}")
 
 def cleanup():
     """정리 작업"""
     global is_measuring
     is_measuring = False
-    try:
-        GPIO.cleanup()
-        print("🧹 GPIO 정리 완료")
-    except:
-        pass
+    if GPIO_AVAILABLE:
+        try:
+            GPIO.cleanup()
+            print("🧹 GPIO 정리 완료")
+        except:
+            pass
 
 if __name__ == '__main__':
     try:
-        setup_gpio()
-        print("🚀 패스파인더 초음파 센서 서버 시작")
-        print("📡 실시간 거리 측정 및 데이터 시각화 시스템")
-        print("🌐 웹 브라우저에서 http://라즈베리파이IP:5000 접속")
-        print("-" * 50)
-        
-        socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+        if setup_gpio():
+            print("🚀 패스파인더 초음파 센서 서버 시작")
+            print("📡 실시간 거리 측정 및 데이터 시각화 시스템")
+            if GPIO_AVAILABLE:
+                print("🔧 하드웨어 모드: 실제 센서 사용")
+            else:
+                print("🎮 시뮬레이션 모드: 가상 데이터 생성")
+            print("🌐 웹 브라우저에서 http://라즈베리파이IP:5000 접속")
+            print("-" * 50)
+            
+            socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+        else:
+            print("❌ GPIO 설정 실패로 서버를 시작할 수 없습니다")
         
     except KeyboardInterrupt:
         print("\n⏹️ 서버 종료 중...")

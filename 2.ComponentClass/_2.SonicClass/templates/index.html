@@ -482,6 +482,7 @@
             connectionStatus.textContent = '🟢 연결됨';
             connectionStatus.className = 'connection-status connected';
             addDebugMessage('🔗 WebSocket 연결 성공');
+            console.log('WebSocket 연결됨');
         });
         
         socket.on('disconnect', function() {
@@ -489,30 +490,36 @@
             connectionStatus.textContent = '🔴 연결 끊김';
             connectionStatus.className = 'connection-status disconnected';
             addDebugMessage('🔌 WebSocket 연결 끊김');
+            console.log('WebSocket 연결 끊김');
         });
         
         socket.on('measurement_status', function(data) {
             isMeasuring = data.is_measuring;
             updateMeasurementStatus();
+            console.log('측정 상태 업데이트:', data.is_measuring);
         });
         
         socket.on('measurement_data', function(data) {
             updateDistanceDisplay(data.distance, data.timestamp);
             updateStatistics(data.stats);
             updateChart(data.chart_data);
+            console.log('측정 데이터 수신:', data.distance, 'cm');
         });
         
         socket.on('debug_message', function(data) {
             addDebugMessage('🐛 ' + data.message);
+            console.log('디버그:', data.message);
         });
         
         socket.on('test_result', function(data) {
             addDebugMessage(`🧪 테스트 결과: ${data.results.join(', ')} cm`);
             addDebugMessage(`📊 성공률: ${data.success_rate.toFixed(0)}%, 평균: ${data.avg_distance || 'N/A'} cm`);
+            console.log('테스트 결과:', data);
         });
         
         socket.on('error_message', function(data) {
             addDebugMessage('❌ ' + data.message);
+            console.error('오류:', data.message);
         });
         
         // 거리 표시 업데이트
@@ -605,33 +612,53 @@
         
         // 버튼 이벤트 리스너
         startBtn.addEventListener('click', function() {
+            console.log('측정 시작 버튼 클릭, 연결 상태:', isConnected, '측정 중:', isMeasuring);
             if (isConnected && !isMeasuring) {
+                addDebugMessage('📤 측정 시작 요청 전송 중...');
                 socket.emit('start_measurement');
+            } else if (!isConnected) {
+                addDebugMessage('❌ 서버에 연결되지 않음');
+            } else if (isMeasuring) {
+                addDebugMessage('⚠️ 이미 측정 중');
             }
         });
         
         stopBtn.addEventListener('click', function() {
+            console.log('측정 중지 버튼 클릭, 연결 상태:', isConnected, '측정 중:', isMeasuring);
             if (isConnected && isMeasuring) {
+                addDebugMessage('📤 측정 중지 요청 전송 중...');
                 socket.emit('stop_measurement');
+            } else if (!isConnected) {
+                addDebugMessage('❌ 서버에 연결되지 않음');
+            } else if (!isMeasuring) {
+                addDebugMessage('⚠️ 측정이 실행 중이 아님');
             }
         });
         
         testBtn.addEventListener('click', function() {
+            console.log('센서 테스트 버튼 클릭');
             if (isConnected && !this.disabled) {
                 this.disabled = true;
                 this.textContent = '🔧 테스트 중...';
+                addDebugMessage('📤 센서 테스트 요청 전송 중...');
                 socket.emit('test_sensor');
                 
                 setTimeout(() => {
                     this.disabled = false;
                     this.textContent = '🔧 센서 테스트';
                 }, 3000);
+            } else if (!isConnected) {
+                addDebugMessage('❌ 서버에 연결되지 않음');
             }
         });
         
         clearBtn.addEventListener('click', function() {
+            console.log('데이터 초기화 버튼 클릭');
             if (isConnected && confirm('모든 측정 데이터를 삭제하시겠습니까?')) {
+                addDebugMessage('📤 데이터 초기화 요청 전송 중...');
                 socket.emit('clear_data');
+            } else if (!isConnected) {
+                addDebugMessage('❌ 서버에 연결되지 않음');
             }
         });
         
