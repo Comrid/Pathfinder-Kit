@@ -20,7 +20,11 @@ import atexit
 # Flask 앱 설정
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'pathfinder-integrated-system'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, 
+                   cors_allowed_origins="*",
+                   async_mode='threading',
+                   logger=True,
+                   engineio_logger=True)
 
 # GPIO 모듈 가용성 확인
 try:
@@ -517,6 +521,7 @@ def system_status():
 @socketio.on('connect')
 def handle_connect():
     print(f"🔗 클라이언트 연결: {request.sid}")
+    print(f"🔗 연결 정보: {request.environ.get('REMOTE_ADDR', 'Unknown')}")
     emit('system_status', {
         'camera_type': camera_type,
         'gpio_available': GPIO_AVAILABLE,
@@ -535,11 +540,18 @@ def handle_motor_command(data):
     command = data.get('command', 'stop')
     speed = data.get('speed', 100)
     
+    print(f"📡 모터 명령 수신: {command} (속도: {speed}%) from {request.sid}")
+    
     with command_lock:
         current_command = command
         motor_speed = speed
     
-    print(f"📡 모터 명령 수신: {command} (속도: {speed}%)")
+    # 명령 수신 확인 응답
+    emit('motor_command_received', {
+        'command': command,
+        'speed': speed,
+        'timestamp': time.time()
+    })
 
 @socketio.on('speed_change')
 def handle_speed_change(data):
@@ -548,15 +560,23 @@ def handle_speed_change(data):
     
     speed = data.get('speed', 100)
     
+    print(f"🎛️ 속도 변경 수신: {speed}% from {request.sid}")
+    
     with command_lock:
         motor_speed = speed
     
-    print(f"🎛️ 속도 변경: {speed}%")
+    # 속도 변경 확인 응답
+    emit('speed_change_received', {
+        'speed': speed,
+        'timestamp': time.time()
+    })
 
 @socketio.on('clear_ultrasonic_data')
 def handle_clear_ultrasonic_data():
     """초음파 데이터 초기화"""
     global ultrasonic_stats
+    
+    print(f"🧹 초음파 데이터 초기화 요청 from {request.sid}")
     
     ultrasonic_data.clear()
     ultrasonic_stats = {
@@ -568,7 +588,7 @@ def handle_clear_ultrasonic_data():
     }
     
     emit('ultrasonic_data_cleared', {'message': '초음파 데이터가 초기화되었습니다.'})
-    print("🧹 초음파 데이터 초기화")
+    print("🧹 초음파 데이터 초기화 완료")
 
 # =============================================================================
 # 시스템 정리 및 메인 함수
@@ -657,21 +677,30 @@ if __name__ == '__main__':
         server_ip = get_server_ip()
         print("=" * 60)
         print(f"🌐 브라우저에서 http://{server_ip}:5000 으로 접속하세요")
+        print(f"🌐 로컬에서는 http://localhost:5000 으로도 접속 가능")
         print("📱 모바일에서도 접속 가능합니다!")
         print("⚡ 실시간 WebSocket 통신 지원")
         print("🎮 키보드 제어: WASD + QE + ZC")
         print("📹 실시간 카메라 스트리밍")
         print("📏 자동 초음파 센서 측정")
+        print("🔧 디버깅: 브라우저 개발자 도구(F12) 콘솔 확인")
         print("Ctrl+C로 종료")
         print("=" * 60)
         
         # SocketIO 서버 실행
-        socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+        print("🚀 Flask-SocketIO 서버 시작 중...")
+        socketio.run(app, 
+                    host='0.0.0.0', 
+                    port=5000, 
+                    debug=False,
+                    allow_unsafe_werkzeug=True)
         
     except KeyboardInterrupt:
         print("\n🛑 사용자에 의해 종료됨")
     except Exception as e:
         print(f"❌ 시스템 오류: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         cleanup()
         print("✅ 시스템 종료 완료") 

@@ -644,8 +644,15 @@
     <div class="notification" id="notification"></div>
 
     <script>
-        // WebSocket 연결
-        const socket = io();
+        // WebSocket 연결 (더 안정적인 설정)
+        const socket = io({
+            transports: ['websocket', 'polling'],
+            timeout: 20000,
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionAttempts: 5,
+            maxReconnectionAttempts: 10
+        });
         
         // DOM 요소들
         const connectionStatus = document.getElementById('connectionStatus');
@@ -670,6 +677,7 @@
         let motorSpeed = 100;
         let chartData = [];
         const maxChartPoints = 20;
+        let reconnectAttempts = 0;
         
         // 페이지 로드 시 초기화
         document.addEventListener('DOMContentLoaded', function() {
@@ -678,7 +686,19 @@
             
             // 주기적 업데이트
             setInterval(updateTimestamp, 1000);
+            
+            // 연결 상태 체크
+            setTimeout(checkConnection, 3000);
         });
+        
+        // 연결 상태 체크
+        function checkConnection() {
+            if (!isConnected) {
+                addLog('연결 시도 중... 서버가 실행 중인지 확인하세요.', 'error');
+                connectionStatus.innerHTML = '<i class="fas fa-exclamation-triangle"></i> <span>연결 실패</span>';
+                connectionStatus.className = 'connection-status disconnected';
+            }
+        }
         
         // 이벤트 리스너 설정
         function setupEventListeners() {
@@ -695,14 +715,21 @@
                 speedValue.textContent = `${motorSpeed}%`;
                 
                 if (activeCommand && isConnected) {
+                    console.log('속도 변경 전송:', motorSpeed);
                     socket.emit('speed_change', { speed: motorSpeed });
+                } else if (!isConnected) {
+                    console.warn('SocketIO 연결되지 않음: speed change');
                 }
             });
             
             // 데이터 초기화 버튼
             clearDataBtn.addEventListener('click', function() {
                 if (isConnected) {
+                    console.log('데이터 초기화 요청 전송');
                     socket.emit('clear_ultrasonic_data');
+                } else {
+                    addLog('서버에 연결되지 않음 - 데이터 초기화 실패', 'error');
+                    console.warn('SocketIO 연결되지 않음: clear data');
                 }
             });
             
@@ -744,25 +771,45 @@
         // WebSocket 이벤트 핸들러
         socket.on('connect', function() {
             isConnected = true;
+            reconnectAttempts = 0;
             connectionStatus.innerHTML = '<i class="fas fa-circle"></i> <span>연결됨</span>';
             connectionStatus.className = 'connection-status connected';
             addLog('WebSocket 연결 성공', 'system');
+            console.log('SocketIO 연결 성공');
         });
         
-        socket.on('disconnect', function() {
+        socket.on('disconnect', function(reason) {
             isConnected = false;
             connectionStatus.innerHTML = '<i class="fas fa-circle"></i> <span>연결 끊김</span>';
             connectionStatus.className = 'connection-status disconnected';
-            addLog('WebSocket 연결 끊김', 'error');
+            addLog(`WebSocket 연결 끊김: ${reason}`, 'error');
+            console.log('SocketIO 연결 끊김:', reason);
+        });
+        
+        socket.on('connect_error', function(error) {
+            reconnectAttempts++;
+            addLog(`연결 오류 (시도 ${reconnectAttempts}): ${error.message}`, 'error');
+            console.error('SocketIO 연결 오류:', error);
+            
+            if (reconnectAttempts >= 5) {
+                addLog('연결 재시도 횟수 초과. 페이지를 새로고침하세요.', 'error');
+            }
+        });
+        
+        socket.on('reconnect', function(attemptNumber) {
+            addLog(`재연결 성공 (시도 ${attemptNumber})`, 'system');
+            console.log('SocketIO 재연결 성공');
         });
         
         socket.on('system_status', function(data) {
             addLog(`시스템 연결: ${data.message}`, 'system');
+            console.log('시스템 상태:', data);
         });
         
         socket.on('motor_status', function(data) {
             updateMotorStatus(data.command, data.command !== 'stop');
             addLog(`모터: ${getCommandName(data.command)} (${data.speed}%)`, 'motor');
+            console.log('모터 상태:', data);
         });
         
         socket.on('ultrasonic_data', function(data) {
@@ -774,20 +821,29 @@
             } else {
                 addLog('거리 측정 실패', 'error');
             }
+            console.log('초음파 데이터:', data);
         });
         
         socket.on('ultrasonic_data_cleared', function(data) {
             clearChart();
             addLog('초음파 데이터 초기화됨', 'system');
+            console.log('데이터 초기화:', data);
         });
         
         // 명령 시작
         function startCommand(command) {
-            if (!isConnected || activeCommand === command) return;
+            if (!isConnected) {
+                addLog('서버에 연결되지 않음 - 명령 무시됨', 'error');
+                console.warn('SocketIO 연결되지 않음:', command);
+                return;
+            }
+            
+            if (activeCommand === command) return;
             
             activeCommand = command;
             updateMotorStatus(command, command !== 'stop');
             
+            console.log('모터 명령 전송:', { command, speed: motorSpeed });
             socket.emit('motor_command', {
                 command: command,
                 speed: motorSpeed
@@ -796,11 +852,17 @@
         
         // 명령 중지
         function stopCommand() {
-            if (!isConnected || !activeCommand || activeCommand === 'stop') return;
+            if (!isConnected) {
+                console.warn('SocketIO 연결되지 않음: stop command');
+                return;
+            }
+            
+            if (!activeCommand || activeCommand === 'stop') return;
             
             activeCommand = '';
             updateMotorStatus('stop', false);
             
+            console.log('모터 정지 명령 전송');
             socket.emit('motor_command', {
                 command: 'stop',
                 speed: 0
