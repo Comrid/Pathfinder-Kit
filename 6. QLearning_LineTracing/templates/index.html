@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧠 Q-Learning LineTracing | 패스파인더 키트</title>
+    
+    <!-- CSS 라이브러리 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --success-color: #16a34a;
+            --warning-color: #d97706;
+            --danger-color: #dc2626;
+            --dark-color: #1f2937;
+            --light-color: #f8fafc;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            margin: 20px;
+            padding: 30px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, var(--primary-color), var(--success-color));
+            color: white;
+            border-radius: 15px;
+        }
+
+        .status-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            border-left: 5px solid var(--primary-color);
+        }
+
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .video-stream {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .video-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .control-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-custom {
+            border-radius: 10px;
+            padding: 12px 24px;
+            font-weight: 600;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-learning {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border: none;
+            color: white;
+        }
+
+        .btn-autonomous {
+            background: linear-gradient(135deg, #16a34a, #15803d);
+            border: none;
+            color: white;
+        }
+
+        .btn-stop {
+            background: linear-gradient(135deg, #dc2626, #b91c1c);
+            border: none;
+            color: white;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-item {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            border-top: 4px solid var(--primary-color);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        .stat-label {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+
+        .q-table-container {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .q-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .q-table th,
+        .q-table td {
+            padding: 8px;
+            text-align: center;
+            border: 1px solid #e5e7eb;
+            font-size: 0.8rem;
+        }
+
+        .q-table th {
+            background: var(--primary-color);
+            color: white;
+            font-weight: 600;
+        }
+
+        .q-value {
+            border-radius: 4px;
+            padding: 4px;
+            color: white;
+            font-weight: 500;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .learning-info {
+            background: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .autonomous-info {
+            background: #f0fdf4;
+            border: 1px solid #16a34a;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .action-indicator {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin: 2px;
+        }
+
+        .action-0 { background: #fef3c7; color: #92400e; } /* 좌회전 */
+        .action-1 { background: #ddd6fe; color: #6b21a8; } /* 약간좌 */
+        .action-2 { background: #dcfce7; color: #166534; } /* 직진 */
+        .action-3 { background: #fed7d7; color: #c53030; } /* 약간우 */
+        .action-4 { background: #fecaca; color: #991b1b; } /* 우회전 */
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-online { background: #16a34a; }
+        .status-offline { background: #dc2626; }
+        .status-learning { background: #d97706; }
+
+        .log-container {
+            background: #1f2937;
+            color: #f9fafb;
+            border-radius: 10px;
+            padding: 15px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            margin-bottom: 20px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+
+        .log-timestamp {
+            color: #9ca3af;
+        }
+
+        .processed-frame {
+            max-width: 100%;
+            border-radius: 10px;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                margin: 10px;
+                padding: 15px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .btn-custom {
+                padding: 8px 16px;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="main-container">
+            <!-- 헤더 -->
+            <div class="header">
+                <h1><i class="fas fa-brain"></i> Q-Learning LineTracing</h1>
+                <p class="mb-0">패스파인더 키트 강화학습 자율주행 시스템</p>
+            </div>
+
+            <!-- 시스템 상태 -->
+            <div class="status-card">
+                <h5><i class="fas fa-info-circle"></i> 시스템 상태</h5>
+                <div class="row">
+                    <div class="col-md-3">
+                        <span class="status-indicator" id="gpio-status"></span>
+                        <span id="gpio-text">GPIO: 확인 중...</span>
+                    </div>
+                    <div class="col-md-3">
+                        <span class="status-indicator" id="camera-status"></span>
+                        <span id="camera-text">카메라: 확인 중...</span>
+                    </div>
+                    <div class="col-md-3">
+                        <span class="status-indicator" id="learning-status"></span>
+                        <span id="learning-text">학습: 대기 중</span>
+                    </div>
+                    <div class="col-md-3">
+                        <span class="status-indicator" id="autonomous-status"></span>
+                        <span id="autonomous-text">자율주행: 대기 중</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <!-- 왼쪽 컬럼: 카메라 및 제어 -->
+                <div class="col-lg-6">
+                    <!-- 카메라 스트리밍 -->
+                    <div class="video-container">
+                        <img src="/video_feed" class="video-stream" alt="카메라 스트리밍">
+                        <div class="video-overlay">
+                            <div>실시간 카메라</div>
+                            <div id="fps-counter">FPS: --</div>
+                        </div>
+                    </div>
+
+                    <!-- 처리된 프레임 -->
+                    <div class="video-container" id="processed-container" style="display: none;">
+                        <img id="processed-frame" class="processed-frame" alt="처리된 프레임">
+                        <div class="video-overlay">
+                            <div>라인 검출 결과</div>
+                        </div>
+                    </div>
+
+                    <!-- 제어 패널 -->
+                    <div class="control-panel">
+                        <h5><i class="fas fa-gamepad"></i> 제어 패널</h5>
+                        
+                        <!-- Q-Learning 제어 -->
+                        <div class="mb-3">
+                            <h6>Q-Learning 학습</h6>
+                            <button class="btn btn-learning btn-custom" id="start-learning">
+                                <i class="fas fa-play"></i> 학습 시작
+                            </button>
+                            <button class="btn btn-stop btn-custom" id="stop-learning">
+                                <i class="fas fa-stop"></i> 학습 중지
+                            </button>
+                            <button class="btn btn-secondary btn-custom" id="reset-learning">
+                                <i class="fas fa-redo"></i> 학습 초기화
+                            </button>
+                        </div>
+
+                        <!-- 자율주행 제어 -->
+                        <div class="mb-3">
+                            <h6>자율주행</h6>
+                            <button class="btn btn-autonomous btn-custom" id="start-autonomous">
+                                <i class="fas fa-robot"></i> 자율주행 시작
+                            </button>
+                            <button class="btn btn-stop btn-custom" id="stop-autonomous">
+                                <i class="fas fa-stop"></i> 자율주행 중지
+                            </button>
+                        </div>
+
+                        <!-- 수동 제어 -->
+                        <div class="mb-3">
+                            <h6>수동 제어</h6>
+                            <div class="text-center">
+                                <div>
+                                    <button class="btn btn-outline-primary btn-custom" id="manual-forward">
+                                        <i class="fas fa-arrow-up"></i>
+                                    </button>
+                                </div>
+                                <div>
+                                    <button class="btn btn-outline-primary btn-custom" id="manual-left">
+                                        <i class="fas fa-arrow-left"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-custom" id="manual-stop">
+                                        <i class="fas fa-stop"></i>
+                                    </button>
+                                    <button class="btn btn-outline-primary btn-custom" id="manual-right">
+                                        <i class="fas fa-arrow-right"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 모델 관리 -->
+                        <div class="mb-3">
+                            <h6>모델 관리</h6>
+                            <button class="btn btn-success btn-custom" id="save-model">
+                                <i class="fas fa-save"></i> 모델 저장
+                            </button>
+                            <button class="btn btn-info btn-custom" id="load-model">
+                                <i class="fas fa-upload"></i> 모델 로드
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 오른쪽 컬럼: 학습 정보 및 통계 -->
+                <div class="col-lg-6">
+                    <!-- 실시간 통계 -->
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="episode-count">0</div>
+                            <div class="stat-label">에피소드</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="total-steps">0</div>
+                            <div class="stat-label">총 스텝</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="success-rate">0%</div>
+                            <div class="stat-label">성공률</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="epsilon-value">0.30</div>
+                            <div class="stat-label">탐험률 (ε)</div>
+                        </div>
+                    </div>
+
+                    <!-- 학습 정보 -->
+                    <div id="learning-info" class="learning-info" style="display: none;">
+                        <h6><i class="fas fa-brain"></i> 학습 진행 상황</h6>
+                        <div class="row">
+                            <div class="col-6">
+                                <strong>현재 상태:</strong> <span id="current-state">-</span><br>
+                                <strong>선택된 행동:</strong> <span id="current-action">-</span><br>
+                                <strong>보상:</strong> <span id="current-reward">-</span>
+                            </div>
+                            <div class="col-6">
+                                <strong>에피소드 보상:</strong> <span id="episode-reward">0</span><br>
+                                <strong>라인 검출:</strong> <span id="line-detected">-</span><br>
+                                <strong>라인 위치:</strong> <span id="line-position">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 자율주행 정보 -->
+                    <div id="autonomous-info" class="autonomous-info" style="display: none;">
+                        <h6><i class="fas fa-robot"></i> 자율주행 상태</h6>
+                        <div class="row">
+                            <div class="col-6">
+                                <strong>현재 상태:</strong> <span id="auto-state">-</span><br>
+                                <strong>선택된 행동:</strong> <span id="auto-action">-</span><br>
+                                <strong>신뢰도:</strong> <span id="auto-confidence">-</span>
+                            </div>
+                            <div class="col-6">
+                                <strong>라인 검출:</strong> <span id="auto-line-detected">-</span><br>
+                                <strong>라인 위치:</strong> <span id="auto-line-position">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Q-테이블 히트맵 -->
+                    <div class="q-table-container">
+                        <h5><i class="fas fa-table"></i> Q-테이블 히트맵</h5>
+                        <p class="text-muted">각 상태에서의 행동 가치 함수</p>
+                        <div id="q-table-display">
+                            <table class="q-table">
+                                <thead>
+                                    <tr>
+                                        <th>상태\행동</th>
+                                        <th>좌회전</th>
+                                        <th>약간좌</th>
+                                        <th>직진</th>
+                                        <th>약간우</th>
+                                        <th>우회전</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="q-table-body">
+                                    <!-- Q-테이블 데이터가 여기에 동적으로 추가됩니다 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 학습 차트 -->
+                    <div class="chart-container">
+                        <h5><i class="fas fa-chart-line"></i> 학습 진행 차트</h5>
+                        <canvas id="reward-chart" width="400" height="200"></canvas>
+                    </div>
+
+                    <!-- 시스템 로그 -->
+                    <div class="log-container" id="system-log">
+                        <div class="log-entry">
+                            <span class="log-timestamp">[시작]</span> 시스템 초기화 중...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+        // Socket.IO 연결
+        const socket = io();
+        
+        // 전역 변수
+        let rewardChart = null;
+        let isLearning = false;
+        let isAutonomous = false;
+        let frameCount = 0;
+        let lastFpsTime = Date.now();
+
+        // 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeChart();
+            setupEventListeners();
+            updateSystemStatus();
+            
+            // 주기적으로 상태 업데이트
+            setInterval(updateSystemStatus, 5000);
+            setInterval(updateFPS, 1000);
+        });
+
+        // 차트 초기화
+        function initializeChart() {
+            const ctx = document.getElementById('reward-chart').getContext('2d');
+            rewardChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: '에피소드 보상',
+                        data: [],
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // 이벤트 리스너 설정
+        function setupEventListeners() {
+            // 학습 제어
+            document.getElementById('start-learning').addEventListener('click', () => {
+                socket.emit('start_learning');
+            });
+
+            document.getElementById('stop-learning').addEventListener('click', () => {
+                socket.emit('stop_learning');
+            });
+
+            document.getElementById('reset-learning').addEventListener('click', () => {
+                if (confirm('학습 데이터를 모두 초기화하시겠습니까?')) {
+                    socket.emit('reset_learning');
+                }
+            });
+
+            // 자율주행 제어
+            document.getElementById('start-autonomous').addEventListener('click', () => {
+                socket.emit('start_autonomous');
+            });
+
+            document.getElementById('stop-autonomous').addEventListener('click', () => {
+                socket.emit('stop_autonomous');
+            });
+
+            // 수동 제어
+            document.getElementById('manual-forward').addEventListener('click', () => {
+                socket.emit('manual_control', {command: 'forward'});
+            });
+
+            document.getElementById('manual-left').addEventListener('click', () => {
+                socket.emit('manual_control', {command: 'left'});
+            });
+
+            document.getElementById('manual-right').addEventListener('click', () => {
+                socket.emit('manual_control', {command: 'right'});
+            });
+
+            document.getElementById('manual-stop').addEventListener('click', () => {
+                socket.emit('manual_control', {command: 'stop'});
+            });
+
+            // 모델 관리
+            document.getElementById('save-model').addEventListener('click', () => {
+                socket.emit('save_model');
+            });
+
+            document.getElementById('load-model').addEventListener('click', () => {
+                const filename = prompt('로드할 모델 파일명을 입력하세요:', 'q_learning_model.json');
+                if (filename) {
+                    socket.emit('load_model', {filename: filename});
+                }
+            });
+        }
+
+        // 시스템 상태 업데이트
+        function updateSystemStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    // GPIO 상태
+                    const gpioStatus = document.getElementById('gpio-status');
+                    const gpioText = document.getElementById('gpio-text');
+                    if (data.gpio_available) {
+                        gpioStatus.className = 'status-indicator status-online';
+                        gpioText.textContent = 'GPIO: 연결됨';
+                    } else {
+                        gpioStatus.className = 'status-indicator status-offline';
+                        gpioText.textContent = 'GPIO: 시뮬레이션';
+                    }
+
+                    // 카메라 상태
+                    const cameraStatus = document.getElementById('camera-status');
+                    const cameraText = document.getElementById('camera-text');
+                    if (data.camera_available) {
+                        cameraStatus.className = 'status-indicator status-online';
+                        cameraText.textContent = '카메라: 연결됨';
+                    } else {
+                        cameraStatus.className = 'status-indicator status-offline';
+                        cameraText.textContent = '카메라: 시뮬레이션';
+                    }
+
+                    // 학습 상태
+                    const learningStatus = document.getElementById('learning-status');
+                    const learningText = document.getElementById('learning-text');
+                    if (data.learning_active) {
+                        learningStatus.className = 'status-indicator status-learning';
+                        learningText.textContent = '학습: 진행 중';
+                        isLearning = true;
+                    } else {
+                        learningStatus.className = 'status-indicator status-offline';
+                        learningText.textContent = '학습: 대기 중';
+                        isLearning = false;
+                    }
+
+                    // 자율주행 상태
+                    const autonomousStatus = document.getElementById('autonomous-status');
+                    const autonomousText = document.getElementById('autonomous-text');
+                    if (data.autonomous_mode) {
+                        autonomousStatus.className = 'status-indicator status-online';
+                        autonomousText.textContent = '자율주행: 진행 중';
+                        isAutonomous = true;
+                    } else {
+                        autonomousStatus.className = 'status-indicator status-offline';
+                        autonomousText.textContent = '자율주행: 대기 중';
+                        isAutonomous = false;
+                    }
+
+                    // 통계 업데이트
+                    document.getElementById('episode-count').textContent = data.episode || 0;
+                    document.getElementById('total-steps').textContent = data.total_steps || 0;
+                    document.getElementById('success-rate').textContent = (data.success_rate || 0).toFixed(1) + '%';
+                    document.getElementById('epsilon-value').textContent = (data.epsilon || 0).toFixed(3);
+                })
+                .catch(error => {
+                    console.error('상태 업데이트 오류:', error);
+                });
+
+            // Q-테이블 업데이트
+            updateQTable();
+        }
+
+        // Q-테이블 업데이트
+        function updateQTable() {
+            fetch('/api/q_table')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById('q-table-body');
+                    tbody.innerHTML = '';
+
+                    for (let state = 0; state < data.states; state++) {
+                        const row = document.createElement('tr');
+                        
+                        // 상태 열
+                        const stateCell = document.createElement('td');
+                        stateCell.textContent = `상태 ${state}`;
+                        stateCell.style.fontWeight = 'bold';
+                        row.appendChild(stateCell);
+
+                        // 각 행동의 Q값
+                        for (let action = 0; action < data.actions; action++) {
+                            const cell = document.createElement('td');
+                            const qValue = data.q_table[state][action];
+                            
+                            const qDiv = document.createElement('div');
+                            qDiv.className = 'q-value';
+                            qDiv.textContent = qValue.toFixed(2);
+                            
+                            // Q값에 따른 색상 설정
+                            const intensity = Math.min(Math.abs(qValue) / 10, 1);
+                            if (qValue > 0) {
+                                qDiv.style.backgroundColor = `rgba(34, 197, 94, ${intensity})`;
+                            } else if (qValue < 0) {
+                                qDiv.style.backgroundColor = `rgba(239, 68, 68, ${intensity})`;
+                            } else {
+                                qDiv.style.backgroundColor = '#e5e7eb';
+                                qDiv.style.color = '#374151';
+                            }
+                            
+                            cell.appendChild(qDiv);
+                            row.appendChild(cell);
+                        }
+                        
+                        tbody.appendChild(row);
+                    }
+                })
+                .catch(error => {
+                    console.error('Q-테이블 업데이트 오류:', error);
+                });
+        }
+
+        // FPS 카운터 업데이트
+        function updateFPS() {
+            const now = Date.now();
+            const fps = Math.round(frameCount * 1000 / (now - lastFpsTime));
+            document.getElementById('fps-counter').textContent = `FPS: ${fps}`;
+            frameCount = 0;
+            lastFpsTime = now;
+        }
+
+        // 로그 추가
+        function addLog(message, type = 'info') {
+            const logContainer = document.getElementById('system-log');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            
+            const timestamp = new Date().toLocaleTimeString();
+            logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> ${message}`;
+            
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // 로그 개수 제한 (최대 100개)
+            while (logContainer.children.length > 100) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        // 행동 이름 변환
+        function getActionName(action) {
+            const actions = ['좌회전', '약간좌', '직진', '약간우', '우회전'];
+            return actions[action] || '알 수 없음';
+        }
+
+        // 행동 표시기 생성
+        function createActionIndicator(action, actionName) {
+            return `<span class="action-indicator action-${action}">${actionName}</span>`;
+        }
+
+        // Socket.IO 이벤트 핸들러
+        socket.on('connect', function() {
+            addLog('서버에 연결되었습니다.', 'success');
+        });
+
+        socket.on('disconnect', function() {
+            addLog('서버 연결이 끊어졌습니다.', 'error');
+        });
+
+        socket.on('system_status', function(data) {
+            addLog(`시스템 상태: GPIO=${data.gpio_available}, 카메라=${data.camera_available}`);
+        });
+
+        socket.on('learning_started', function(data) {
+            addLog(data.message, 'success');
+            document.getElementById('learning-info').style.display = 'block';
+            document.getElementById('autonomous-info').style.display = 'none';
+        });
+
+        socket.on('learning_stopped', function(data) {
+            addLog(data.message, 'warning');
+            document.getElementById('learning-info').style.display = 'none';
+        });
+
+        socket.on('autonomous_started', function(data) {
+            addLog(data.message, 'success');
+            document.getElementById('autonomous-info').style.display = 'block';
+            document.getElementById('learning-info').style.display = 'none';
+        });
+
+        socket.on('autonomous_stopped', function(data) {
+            addLog(data.message, 'warning');
+            document.getElementById('autonomous-info').style.display = 'none';
+        });
+
+        socket.on('learning_update', function(data) {
+            // 학습 정보 업데이트
+            document.getElementById('current-state').textContent = data.state;
+            document.getElementById('current-action').innerHTML = createActionIndicator(data.action, data.action_name);
+            document.getElementById('current-reward').textContent = data.reward.toFixed(1);
+            document.getElementById('episode-reward').textContent = data.total_reward.toFixed(1);
+            document.getElementById('line-detected').textContent = data.line_detected ? '✅ 검출됨' : '❌ 검출 안됨';
+            document.getElementById('line-position').textContent = data.line_center_x || 'N/A';
+            
+            frameCount++;
+        });
+
+        socket.on('autonomous_update', function(data) {
+            // 자율주행 정보 업데이트
+            document.getElementById('auto-state').textContent = data.state;
+            document.getElementById('auto-action').innerHTML = createActionIndicator(data.action, data.action_name);
+            document.getElementById('auto-confidence').textContent = data.confidence.toFixed(2);
+            document.getElementById('auto-line-detected').textContent = data.line_detected ? '✅ 검출됨' : '❌ 검출 안됨';
+            document.getElementById('auto-line-position').textContent = data.line_center_x || 'N/A';
+            
+            frameCount++;
+        });
+
+        socket.on('episode_complete', function(data) {
+            addLog(`에피소드 ${data.episode} 완료: 보상=${data.total_reward.toFixed(1)}, 스텝=${data.steps}, 성공률=${data.success_rate.toFixed(1)}%`);
+            
+            // 차트 업데이트
+            if (rewardChart) {
+                rewardChart.data.labels.push(data.episode);
+                rewardChart.data.datasets[0].data.push(data.total_reward);
+                
+                // 최대 50개 데이터포인트만 유지
+                if (rewardChart.data.labels.length > 50) {
+                    rewardChart.data.labels.shift();
+                    rewardChart.data.datasets[0].data.shift();
+                }
+                
+                rewardChart.update();
+            }
+        });
+
+        socket.on('processed_frame', function(data) {
+            const processedFrame = document.getElementById('processed-frame');
+            const container = document.getElementById('processed-container');
+            
+            processedFrame.src = 'data:image/jpeg;base64,' + data.image;
+            container.style.display = 'block';
+        });
+
+        socket.on('model_saved', function(data) {
+            addLog(data.message, 'success');
+        });
+
+        socket.on('model_loaded', function(data) {
+            addLog(data.message, 'success');
+            updateSystemStatus(); // 상태 새로고침
+        });
+
+        socket.on('learning_reset', function(data) {
+            addLog(data.message, 'warning');
+            
+            // 차트 초기화
+            if (rewardChart) {
+                rewardChart.data.labels = [];
+                rewardChart.data.datasets[0].data = [];
+                rewardChart.update();
+            }
+            
+            updateSystemStatus(); // 상태 새로고침
+        });
+
+        socket.on('error', function(data) {
+            addLog(`오류: ${data.message}`, 'error');
+            alert(data.message);
+        });
+
+        socket.on('manual_executed', function(data) {
+            addLog(`수동 제어: ${data.command}`);
+        });
+    </script>
+</body>
+</html>

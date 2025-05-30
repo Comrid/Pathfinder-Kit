@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
 Pathfinder Obstacle Avoidance System
-초음파 센서 기반 자율 장애물 회피 시스템
+초음파 센서 기반 자율 장애물 회피 시스템 + 실시간 카메라 피드
 """
 
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, Response
 from flask_socketio import SocketIO, emit
 import time
 import threading
 import random
 import subprocess
+import cv2
+import numpy as np
 from datetime import datetime
 from collections import deque
 
@@ -22,10 +24,144 @@ except ImportError:
     GPIO_AVAILABLE = False
     print("⚠️ RPi.GPIO 모듈 없음 - 시뮬레이션 모드로 실행")
 
+# 카메라 모듈 가용성 확인
+try:
+    from picamera2 import Picamera2
+    CAMERA_AVAILABLE = True
+    CAMERA_TYPE = "PiCamera"
+    print("📷 PiCamera2 모듈 로드됨")
+except ImportError:
+    try:
+        import cv2
+        CAMERA_AVAILABLE = True
+        CAMERA_TYPE = "USB"
+        print("📷 USB 카메라 사용 가능")
+    except ImportError:
+        CAMERA_AVAILABLE = False
+        CAMERA_TYPE = "None"
+        print("⚠️ 카메라 모듈 없음 - 시뮬레이션 모드")
+
 # Flask 앱 설정
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'pathfinder_obstacle_avoidance_2024'
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+# =============================================================================
+# 카메라 설정
+# =============================================================================
+
+camera = None
+camera_lock = threading.Lock()
+current_frame = None
+
+def setup_camera():
+    """카메라 초기화"""
+    global camera
+    
+    if not CAMERA_AVAILABLE:
+        print("⚠️ 카메라 없음 - 시뮬레이션 모드")
+        return False
+    
+    try:
+        if CAMERA_TYPE == "PiCamera" and GPIO_AVAILABLE:
+            # Raspberry Pi 카메라 사용
+            camera = Picamera2()
+            camera.configure(camera.create_preview_configuration(main={"size": (640, 480)}))
+            camera.start()
+            time.sleep(2)  # 카메라 안정화 대기
+            print("📷 PiCamera2 초기화 완료")
+        else:
+            # USB 카메라 사용
+            camera = cv2.VideoCapture(0)
+            if not camera.isOpened():
+                print("❌ USB 카메라 열기 실패")
+                return False
+            camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            camera.set(cv2.CAP_PROP_FPS, 30)
+            print("📷 USB 카메라 초기화 완료")
+        
+        return True
+    except Exception as e:
+        print(f"❌ 카메라 초기화 실패: {e}")
+        return False
+
+def capture_frame():
+    """프레임 캡처"""
+    global current_frame
+    
+    if not CAMERA_AVAILABLE or camera is None:
+        # 시뮬레이션용 더미 프레임 생성
+        dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        
+        # 현재 시간 표시
+        current_time = datetime.now().strftime("%H:%M:%S")
+        cv2.putText(dummy_frame, "SIMULATION MODE", (180, 200), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.putText(dummy_frame, f"Time: {current_time}", (220, 250), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(dummy_frame, "Camera Feed", (230, 300), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        
+        # 시뮬레이션 장애물 표시
+        cv2.rectangle(dummy_frame, (100, 350), (200, 450), (0, 0, 255), 2)
+        cv2.putText(dummy_frame, "Obstacle", (110, 340), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        
+        return dummy_frame
+    
+    try:
+        if CAMERA_TYPE == "PiCamera" and hasattr(camera, 'capture_array'):
+            # PiCamera2
+            frame = camera.capture_array()
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        else:
+            # USB 카메라
+            ret, frame = camera.read()
+            if not ret:
+                return None
+        
+        # 프레임에 정보 오버레이 추가
+        current_time = datetime.now().strftime("%H:%M:%S")
+        cv2.putText(frame, f"Obstacle Avoidance - {current_time}", (10, 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        # 거리 정보 표시 (전역 변수에서 가져오기)
+        if 'current_distance' in globals():
+            distance_text = f"Distance: {current_distance:.1f}cm"
+            cv2.putText(frame, distance_text, (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        
+        # 현재 상태 표시
+        if 'current_state' in globals():
+            state_text = f"State: {current_state}"
+            cv2.putText(frame, state_text, (10, 90), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
+        
+        with camera_lock:
+            current_frame = frame.copy()
+        
+        return frame
+    except Exception as e:
+        print(f"❌ 프레임 캡처 오류: {e}")
+        return None
+
+def generate_frames():
+    """비디오 스트리밍용 프레임 생성기"""
+    while True:
+        frame = capture_frame()
+        if frame is not None:
+            try:
+                # JPEG 인코딩
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                frame_bytes = buffer.tobytes()
+                
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            except Exception as e:
+                print(f"❌ 프레임 인코딩 오류: {e}")
+        
+        time.sleep(0.033)  # ~30 FPS
 
 # =============================================================================
 # 하드웨어 설정
@@ -409,6 +545,12 @@ def index():
     """메인 페이지"""
     return render_template('index.html')
 
+@app.route('/video_feed')
+def video_feed():
+    """실시간 비디오 스트리밍"""
+    return Response(generate_frames(),
+                   mimetype='multipart/x-mixed-replace; boundary=frame')
+
 @app.route('/api/start')
 def start_avoidance():
     """장애물 회피 시작"""
@@ -554,6 +696,12 @@ if __name__ == '__main__':
                 print("🔧 하드웨어 모드: 실제 센서 및 모터 사용")
             else:
                 print("🎮 시뮬레이션 모드: 가상 장애물 생성")
+            
+            # 카메라 초기화
+            if setup_camera():
+                print("📷 카메라 초기화 완료")
+            else:
+                print("⚠️ 카메라 초기화 실패 - 시뮬레이션 모드로 계속")
             
             # IP 주소 자동 감지 및 출력
             try:

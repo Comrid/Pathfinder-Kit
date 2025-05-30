@@ -1,0 +1,26 @@
+# 🧠 Q-Learning LineTracing System Requirements
+# 패스파인더 키트 강화학습 자율주행 시스템
+
+# 웹 프레임워크
+flask>=2.3.0
+flask-socketio>=5.3.0
+eventlet>=0.33.0
+
+# 수치 연산 및 머신러닝
+numpy>=1.21.0
+opencv-python-headless>=4.8.0
+
+# 하드웨어 제어 (Raspberry Pi에서만 필요)
+# RPi.GPIO>=0.7.1
+# picamera2>=0.3.12
+
+# 유틸리티
+python-dotenv>=1.0.0
+python-dateutil>=2.8.0
+
+# 개발 및 테스트 (선택사항)
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# 보안 강화
+cryptography>=41.0.0 
